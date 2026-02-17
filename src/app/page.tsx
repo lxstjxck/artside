@@ -1,65 +1,92 @@
-import Image from "next/image";
+﻿import { useRef } from 'react'
+
+const popularRef = useRef<HTMLDivElement | null>(null);
+
+const scrollPopular = (dir: number) => {
+  if (!popularRef.current) return;
+  const card = popularRef.current.querySelector('.popular-card') as HTMLElement | null;
+  const amount = card ? card.offsetWidth + 24 : 300;
+  popularRef.current.scrollBy({ left: dir * amount, behavior: 'smooth'});
+}
+
+const categories = [
+  'Иллюстрация',
+  'Графический дизайн',
+  'Фотография',
+  '3D art',
+  'Game art',
+  'UI/UX',
+  'Архитектура',
+  'Дизайн продуктов',
+  'Дизайн сайтов',
+  'Fan art',
+];
+
+const popularItems = Array.from({ length: 5 }, (_, index) => ({
+  id: index + 1,
+  title: 'kkkkkkkkkkkkkk',
+}));
+
+const recommendedItems = Array.from({ length: 16 }, (_, index) => ({
+  id: index + 1,
+}));
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main>
+      <section className="pb-6">
+        <div className="mx-auto flex w-full max-w-[1840px] flex-wrap items-center justify-between gap-4 px-10 pb-6">
+          <div className="flex items-center gap-3">
+            <button className="chip chip-dark">Отслеживаемое</button>
+            <button className="chip chip-dark">Понравившееся</button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {categories.map((item) => (
+              <button key={item} className="chip chip-light">
+                {item}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      <section className="section-dark">
+        <div className="mx-auto w-full max-w-[1840px] px-10">
+          <h2 className="section-title">Популярное</h2>
+          <div className="relative">
+            <button className="nav-arrow nav-arrow-left" onClick={() => scrollPopular(-1)} aria-label="Назад">
+              ‹
+            </button>
+            <button className="nav-arrow nav-arrow-right" onClick={() => scrollPopular(1)} aria-label="Вперед">
+              ›
+            </button>
+
+            <div ref={popularRef} className="popular-track">
+              {popularItems.map((item) => (
+                <div key={item.id} className="popular-card snap-start">
+                  <div className="popular-thumb" />
+                  <div className="popular-meta">
+                    <span className="popular-title">{item.title}</span>
+                    <span className="popular-dot" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </main>
-    </div>
+
+        <div className="section-divider" />
+
+        <div className="mx-auto w-full max-w-[1840px] px-10 pb-12">
+          <h2 className="section-title">Рекомендации для вас</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+            {recommendedItems.map((item) => (
+              <div key={item.id} className="recommend-card" />
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
