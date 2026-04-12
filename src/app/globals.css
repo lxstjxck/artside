@@ -203,10 +203,98 @@ body {
   transform: scale(0.94);
 }
 
+.recommend-masonry {
+  column-count: 2;
+  column-gap: 16px;
+}
+
 .recommend-card {
-  aspect-ratio: 1 / 1;
-  border-radius: 10px;
-  background: #7a7a7a;
+  break-inside: avoid;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #171717;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.recommend-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3);
+}
+
+.recommend-card-media {
+  position: relative;
+  width: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.14), transparent 38%),
+    linear-gradient(160deg, #8d8d8d 0%, #767676 45%, #9b9b9b 100%);
+}
+
+.recommend-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.24) 0%, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.34) 100%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.recommend-card:hover .recommend-card-overlay {
+  opacity: 1;
+}
+
+.recommend-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(17, 17, 17, 0.72);
+  color: #ffffff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.recommend-save-btn:hover {
+  background: rgba(17, 17, 17, 0.88);
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.recommend-save-btn:active {
+  transform: scale(0.94);
+}
+
+.recommend-save-btn-active {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111111;
+  border-color: rgba(255, 255, 255, 0.92);
+}
+
+@media (min-width: 640px) {
+  .recommend-masonry {
+    column-count: 3;
+  }
+}
+
+@media (min-width: 1024px) {
+  .recommend-masonry {
+    column-count: 5;
+  }
+}
+
+@media (min-width: 1536px) {
+  .recommend-masonry {
+    column-count: 6;
+  }
 }
 
 @keyframes avatarPress {
@@ -228,6 +316,21 @@ body {
 
 .avatar-trigger {
   transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.notification-trigger {
+  position: relative;
+}
+
+.notification-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #ff7a00;
+  box-shadow: 0 0 0 2px rgba(17, 17, 17, 0.9);
 }
 
 .avatar-trigger:hover {

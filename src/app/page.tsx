@@ -19,12 +19,37 @@ const popularItems = Array.from({ length: 30 }, (_, index) => ({
   title: '1',
 }));
 
+const SAVED_RECOMMENDATIONS_KEY = 'artside.savedRecommendations';
+
 const recommendedItems = Array.from({ length: 16 }, (_, index) => ({
   id: index + 1,
+  ratio: [
+    { width: 4, height: 5 },
+    { width: 4, height: 6 },
+    { width: 3, height: 4 },
+    { width: 4, height: 7 },
+    { width: 1, height: 1 },
+    { width: 5, height: 7 },
+    { width: 4, height: 5 },
+    { width: 3, height: 5 },
+  ][index % 8],
 }));
 
 export default function Home() {
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
+  const [savedRecommendationIds, setSavedRecommendationIds] = useState<number[]>(() => {
+    if (typeof window === 'undefined') return [];
+
+    const saved = window.localStorage.getItem(SAVED_RECOMMENDATIONS_KEY);
+    if (!saved) return [];
+
+    try {
+      return JSON.parse(saved) as number[];
+    } catch {
+      window.localStorage.removeItem(SAVED_RECOMMENDATIONS_KEY);
+      return [];
+    }
+  });
   const popularRef = useRef<HTMLDivElement | null>(null);
 
   const toggleCategory = (category: string) => {
@@ -37,6 +62,17 @@ export default function Home() {
 
   const clearCategories = () => {
     setActiveCategories([]);
+  };
+
+  const toggleSavedRecommendation = (recommendationId: number) => {
+    setSavedRecommendationIds((current) => {
+      const next = current.includes(recommendationId)
+        ? current.filter((item) => item !== recommendationId)
+        : [...current, recommendationId];
+
+      window.localStorage.setItem(SAVED_RECOMMENDATIONS_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   const scrollPopular = (dir: number) => {
@@ -128,9 +164,27 @@ export default function Home() {
 
         <div className="w-full px-10 pb-12">
           <h2 className="section-title">Рекомендации для вас</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+          <div className="recommend-masonry">
             {recommendedItems.map((item) => (
-              <div key={item.id} className="recommend-card" />
+              <article key={item.id} className="recommend-card">
+                <div
+                  className="recommend-card-media"
+                  style={{ aspectRatio: `${item.ratio.width} / ${item.ratio.height}` }}
+                >
+                  <div className="recommend-card-overlay">
+                    <button
+                      type="button"
+                      aria-label={savedRecommendationIds.includes(item.id) ? 'Убрать из сохраненок' : 'Сохранить в сохраненки'}
+                      className={`recommend-save-btn ${savedRecommendationIds.includes(item.id) ? 'recommend-save-btn-active' : ''}`}
+                      onClick={() => toggleSavedRecommendation(item.id)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H11l2 2h4.5A2.5 2.5 0 0 1 20 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </article>
             ))}
           </div>
         </div>
