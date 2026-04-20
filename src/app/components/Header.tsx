@@ -1,13 +1,15 @@
 ﻿'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AuthModal from './AuthModal';
+import type { AuthUser } from '@/lib/auth-types';
 
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([
@@ -16,12 +18,13 @@ export default function Header() {
     { id: 3, text: 'Подборка недели уже доступна', unread: true },
   ]);
   const [avatarUrl] = useState<string | null>(null);
-  const profileUsername = 'artside_user';
+  const profileUsername = currentUser?.username ?? 'artside_user';
   const profileHref = `/profile/${profileUsername}`;
   const profileMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
   const isProfilePage = pathname.startsWith('/profile/');
   const hasUnreadNotifications = notifications.some((item) => item.unread);
+  const isAuthenticated = Boolean(currentUser);
 
   const openProfileMenu = () => {
     if (profileMenuCloseTimer.current) {
@@ -53,14 +56,46 @@ export default function Header() {
     });
   };
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadSession = async () => {
+      try {
+        const response = await fetch('/api/auth/session', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        if (!response.ok) return;
+
+        const data = (await response.json()) as { authenticated: boolean; user?: AuthUser };
+        if (data.authenticated && data.user) {
+          setCurrentUser(data.user);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch {
+        setCurrentUser(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSessionLoading(false);
+        }
+      }
+    };
+
+    void loadSession();
+
+    return () => controller.abort();
+  }, []);
+
   return (
     <>
       {isAuthModalOpen && (
         <AuthModal
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
-          onSuccess={() => {
-            setIsAuthenticated(true);
+          onSuccess={(user) => {
+            setCurrentUser(user);
             setIsProfileMenuOpen(false);
             setIsNotificationsOpen(false);
           }}
@@ -69,7 +104,7 @@ export default function Header() {
       <header className={`w-full ${isProfilePage ? 'border-b border-white/15 bg-[#111111]' : ''}`}>
         <div className="mx-auto flex w-full max-w-[1840px] items-center gap-6 px-10 py-5">
           <div className="flex items-center gap-8">
-            <Link href="/" className="text-xl font-bold tracking-tight text-white">
+            <Link href="/" className="text-2xl font-bold tracking-tight text-white">
               Artside
             </Link>
             <nav className="flex items-center gap-6 text-base font-medium">
@@ -108,11 +143,11 @@ export default function Header() {
           </div>
 
           <div className="relative flex items-center gap-4">
-            {!isAuthenticated && (
+            {!isAuthenticated && !isSessionLoading && (
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="h-9 rounded-full bg-white/90 px-5 text-sm font-medium text-black shadow-soft hover:bg-white transition-colors cursor-pointer"
+                className="h-9 rounded-full bg-white/90 px-5 text-sm font-bold text-black shadow-soft hover:bg-white transition-colors cursor-pointer"
               >
                 Авторизация
               </button>
@@ -197,9 +232,17 @@ export default function Header() {
                     <button
                       type="button"
                       onClick={() => {
-                        setIsAuthenticated(false);
-                        setIsProfileMenuOpen(false);
-                        setIsNotificationsOpen(false);
+                        const logout = async () => {
+                          try {
+                            await fetch('/api/auth/logout', { method: 'POST' });
+                          } finally {
+                            setCurrentUser(null);
+                            setIsProfileMenuOpen(false);
+                            setIsNotificationsOpen(false);
+                          }
+                        };
+
+                        void logout();
                       }}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 hover:bg-white/10"
                     >

@@ -1,11 +1,12 @@
 ﻿'use client';
 
 import { useMemo, useState } from 'react';
+import type { AuthUser } from '@/lib/auth-types';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (user: AuthUser) => void;
 }
 
 const PASSWORD_RULES = {
@@ -22,6 +23,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const resetForm = () => {
     setEmail('');
@@ -48,16 +51,49 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitted(true);
+    setErrorMessage(null);
 
     if (!isLogin && !isRegisterFormValid) return;
     if (isLogin && !isLoginFormValid) return;
 
-    onSuccess?.();
-    onClose();
+    const submitAuth = async () => {
+      try {
+        setIsLoading(true);
+        const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+        const payload = isLogin
+          ? { email, password }
+          : { username, email, password };
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = (await response.json()) as { message?: string; user?: AuthUser };
+        if (!response.ok || !data.user) {
+          setErrorMessage(data.message ?? 'Не удалось выполнить запрос. Попробуйте снова.');
+          return;
+        }
+
+        onSuccess?.(data.user);
+        onClose();
+        resetForm();
+      } catch {
+        setErrorMessage('Сетевая ошибка. Проверьте подключение и повторите попытку.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void submitAuth();
   };
 
   const toggleMode = () => {
     setIsLogin((prev) => !prev);
+    setErrorMessage(null);
     resetForm();
   };
 
@@ -127,13 +163,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             {!isLogin && isSubmitted && !isRegisterFormValid && (
               <p className="text-sm text-red-300">Заполните поля и выполните требования к паролю.</p>
             )}
+            {errorMessage && <p className="text-sm text-red-300">{errorMessage}</p>}
 
             <button
               type="submit"
-              disabled={!isLogin && !isRegisterFormValid}
+              disabled={isLoading || (!isLogin && !isRegisterFormValid)}
               className="mt-6 w-full rounded-lg bg-white/90 py-3 font-medium text-black transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isLogin ? 'Войти' : 'Зарегистрироваться'}
+              {isLoading ? 'Загрузка...' : isLogin ? 'Войти' : 'Зарегистрироваться'}
             </button>
           </form>
 

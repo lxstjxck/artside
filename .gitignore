@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# local app data
+/data/users.json
+
 # production
 /build
 

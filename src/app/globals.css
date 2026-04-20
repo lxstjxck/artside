@@ -95,9 +95,36 @@ body {
 }
 
 .popular-thumb {
+  position: relative;
   aspect-ratio: 1 / 1;
   border-radius: 10px;
   background: #7a7a7a;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.popular-card:hover .popular-thumb {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3);
+}
+
+.popular-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0.08) 45%, rgba(0, 0, 0, 0.28) 100%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.popular-card:hover .popular-overlay {
+  opacity: 1;
 }
 
 .popular-meta {
@@ -119,7 +146,9 @@ body {
   grid-auto-columns: calc((100% - (24px * 4)) / 5);
   gap: 24px;
   overflow-x: auto;
+  overflow-y: visible;
   scroll-snap-type: x mandatory;
+  padding-top: 14px;
   padding-bottom: 6px;
   scrollbar-width: none;
 }
@@ -136,6 +165,7 @@ body {
 .nav-arrow {
   position: absolute;
   top: 42%;
+  z-index: 10;
   height: 36px;
   width: 36px;
   border-radius: 9999px;
@@ -249,7 +279,15 @@ body {
   opacity: 1;
 }
 
-.recommend-save-btn {
+@media (hover: none) {
+  .popular-overlay,
+  .recommend-card-overlay {
+    opacity: 1;
+  }
+}
+
+.save-work-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -264,19 +302,77 @@ body {
   transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
-.recommend-save-btn:hover {
+.save-work-btn:hover {
   background: rgba(17, 17, 17, 0.88);
   border-color: rgba(255, 255, 255, 0.42);
 }
 
-.recommend-save-btn:active {
+.save-work-btn:active {
   transform: scale(0.94);
 }
 
-.recommend-save-btn-active {
+.save-work-btn-active {
   background: rgba(255, 255, 255, 0.92);
   color: #111111;
   border-color: rgba(255, 255, 255, 0.92);
+}
+
+.save-work-btn-active:hover {
+  background: rgba(255, 255, 255, 0.96);
+  color: #111111;
+  border-color: rgba(255, 255, 255, 0.96);
+}
+
+.save-work-btn.save-work-btn-active,
+.save-work-btn.save-work-btn-active:hover {
+  background: rgba(255, 255, 255, 0.96);
+  color: #111111;
+  border-color: rgba(255, 255, 255, 0.96);
+}
+
+.save-work-icon {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.save-work-icon-default {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.save-work-icon-check {
+  opacity: 0;
+  transform: scale(0.65);
+}
+
+.save-work-btn-active .save-work-icon-default {
+  opacity: 0;
+  transform: scale(0.7);
+}
+
+.save-work-btn-active .save-work-icon-check {
+  opacity: 1;
+  transform: scale(1);
+  color: #111111;
+  animation: savedCheckPop 0.25s ease-out;
+}
+
+@keyframes savedCheckPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (min-width: 640px) {
