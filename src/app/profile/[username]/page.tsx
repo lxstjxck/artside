@@ -233,7 +233,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   return (
     <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-4 lg:px-8 lg:py-5">
       <div className="mx-auto grid w-full max-w-[1840px] grid-cols-1 gap-6 xl:grid-cols-[408px_minmax(0,1fr)]">
-        <aside className="rounded-[28px] bg-[linear-gradient(110deg,#ba7ea3_0%,#b694ba_34%,#8ea9d4_72%,#84b6dc_100%)] p-5 text-[#111111] shadow-soft">
+        <aside className="rounded-[28px] bg-[linear-gradient(90deg,#ba7ea3_0%,#b694ba_35%,#8ea9d4_75%,#84b6dc_100%)] p-5 text-[#111111] shadow-soft">
           <div className="flex flex-col items-center">
             <div className="mb-5 flex h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-[#111111]">
               {profile.avatarUrl ? (
