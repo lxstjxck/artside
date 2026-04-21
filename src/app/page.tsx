@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation';
 import type { HomeFeedResponse } from '@/lib/home-feed';
 import type { SavedWorkItem, SavedWorkKind } from '@/lib/saved-work-types';
 
@@ -19,6 +20,7 @@ export default function Home() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const popularRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
 
   const applySavedItems = (items: SavedWorkItem[]) => {
     setSavedPopularIds(items.filter((item) => item.kind === 'popular').map((item) => item.id));
@@ -180,6 +182,10 @@ export default function Home() {
     track.scrollBy({ left: dir * amount, behavior: 'smooth' });
   };
 
+  const openWork = (kind: SavedWorkKind, id: number) => {
+    router.push(`/work/${kind}-${id}`);
+  };
+
   return (
     <main>
       <section className="pb-6">
@@ -247,14 +253,21 @@ export default function Home() {
                 const isPending = pendingSavedKeys.includes(key);
 
                 return (
-                  <div key={item.id} className="popular-card snap-start">
+                  <div
+                    key={item.id}
+                    className="popular-card snap-start cursor-pointer"
+                    onClick={() => openWork('popular', item.id)}
+                  >
                     <div className="popular-thumb">
                       <div className="popular-overlay">
                         <button
                           type="button"
                           aria-label={isSaved ? 'Убрать работу из сохраненок' : 'Сохранить работу в профиль'}
                           className={`save-work-btn ${isSaved ? 'save-work-btn-active' : ''}`}
-                          onClick={() => toggleSavedWork('popular', item.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void toggleSavedWork('popular', item.id);
+                          }}
                           disabled={isPending}
                         >
                           <span className="save-work-icon save-work-icon-default" aria-hidden="true">
@@ -305,7 +318,11 @@ export default function Home() {
               const isPending = pendingSavedKeys.includes(key);
 
               return (
-                <article key={item.id} className="recommend-card">
+                <article
+                  key={item.id}
+                  className="recommend-card cursor-pointer"
+                  onClick={() => openWork('recommendation', item.id)}
+                >
                   <div
                     className="recommend-card-media"
                     style={{ aspectRatio: `${item.ratio.width} / ${item.ratio.height}` }}
@@ -315,7 +332,10 @@ export default function Home() {
                         type="button"
                         aria-label={isSaved ? 'Убрать из сохраненок' : 'Сохранить в сохраненки'}
                         className={`save-work-btn ${isSaved ? 'save-work-btn-active' : ''}`}
-                        onClick={() => toggleSavedWork('recommendation', item.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void toggleSavedWork('recommendation', item.id);
+                        }}
                         disabled={isPending}
                       >
                         <span className="save-work-icon save-work-icon-default" aria-hidden="true">

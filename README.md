@@ -1,32 +1,100 @@
-## [Vibe Coded](https://openai.com/codex/)
+# Artside
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Artside is a Next.js 16 app with:
+- homepage feed (`popular` + `recommendations`)
+- server-side authentication (register/login/logout/session)
+- profile page with server-side data
+- saved works bound to authenticated user
+- notifications API with read state
 
-## Getting Started
+## Stack
 
-First, run the development server:
+- Next.js 16 (App Router)
+- React 19
+- TypeScript
+- Prisma
+- SQLite (local)
+- JWT sessions in `httpOnly` cookies
+
+## Project Structure
+
+- `src/app` - app routes and API routes
+- `src/app/api` - backend endpoints (auth, profile, feed, saved works, notifications)
+- `src/lib` - server/business logic (`user-store`, `saved-work-store`, `work-store`, etc.)
+- `prisma` - Prisma schema and SQL migration snapshot
+- `data` - legacy JSON files used for one-time import fallback
+
+## Environment Variables
+
+Create `.env` (or copy from `.env.example`):
+
+```env
+DATABASE_URL="file:./dev.db"
+AUTH_SECRET="change-me-in-production"
+```
+
+## Run Locally
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Generate Prisma client:
+
+```bash
+npm run prisma:generate
+```
+
+Start dev server:
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Available Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `npm run dev` - run local development server
+- `npm run build` - production build
+- `npm run start` - run production server
+- `npm run lint` - run ESLint
+- `npm run prisma:generate` - generate Prisma client
+- `npm run db:studio` - open Prisma Studio
 
-## Learn More
+## API Overview
 
-To learn more about Next.js, take a look at the following resources:
+Auth:
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/session`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Feed:
+- `GET /api/home-feed`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Profile:
+- `GET /api/profile/[username]`
+- `GET /api/profile`
+- `PATCH /api/profile`
 
-## Deploy on Vercel
+Saved works:
+- `GET /api/saved-works`
+- `POST /api/saved-works`
+- `DELETE /api/saved-works/[workId]`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Notifications:
+- `GET /api/notifications`
+- `POST /api/notifications/read-all`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+- User/session-specific data is now served from backend endpoints.
+- SQLite schema is bootstrapped on first access via `db-bootstrap`, with import from legacy JSON if DB is empty.
+- Local DB files are ignored in git.
+
+---
+
+Проект реализован с использованием вайбкодинг-подхода: быстрые итерации, живой цикл правок и фокус на практический результат.
