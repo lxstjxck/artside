@@ -1,13 +1,40 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import type { AuthUser, StoredUser } from '@/lib/auth-types';
+import type { AuthUser, StoredUser, UserProfile } from '@/lib/auth-types';
+import { ensureDatabaseSchema } from '@/lib/db-bootstrap';
+import { prisma } from '@/lib/prisma';
 
-const usersFilePath = path.join(process.cwd(), 'data', 'users.json');
+const createDefaultProfile = (username: string): UserProfile => ({
+  nickname: username,
+  location: 'Не указано',
+  bio: 'Расскажите о себе в профиле.',
+  avatarUrl: '',
+});
 
-type UsersFile = {
-  users: StoredUser[];
-};
+const mapPrismaUserToStored = (user: {
+  id: string;
+  username: string;
+  email: string;
+  passwordHash: string;
+  profile: {
+    nickname: string;
+    location: string;
+    bio: string;
+    avatarUrl: string;
+  } | null;
+}): StoredUser => ({
+  id: user.id,
+  username: user.username,
+  email: user.email,
+  passwordHash: user.passwordHash,
+  profile: user.profile
+    ? {
+        nickname: user.profile.nickname,
+        location: user.profile.location,
+        bio: user.profile.bio,
+        avatarUrl: user.profile.avatarUrl,
+      }
+    : createDefaultProfile(user.username),
+});
 
 const toPublicUser = (user: StoredUser): AuthUser => ({
   id: user.id,
@@ -15,40 +42,34 @@ const toPublicUser = (user: StoredUser): AuthUser => ({
   email: user.email,
 });
 
-const ensureUsersFile = async () => {
-  try {
-    await fs.access(usersFilePath);
-  } catch {
-    await fs.mkdir(path.dirname(usersFilePath), { recursive: true });
-    await fs.writeFile(usersFilePath, JSON.stringify({ users: [] } satisfies UsersFile, null, 2), 'utf8');
-  }
-};
-
-const readUsers = async (): Promise<StoredUser[]> => {
-  await ensureUsersFile();
-
-  try {
-    const raw = await fs.readFile(usersFilePath, 'utf8');
-    const parsed = JSON.parse(raw) as UsersFile;
-    return Array.isArray(parsed.users) ? parsed.users : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeUsers = async (users: StoredUser[]) => {
-  const payload: UsersFile = { users };
-  await fs.writeFile(usersFilePath, JSON.stringify(payload, null, 2), 'utf8');
-};
-
 export const findUserByEmail = async (email: string): Promise<StoredUser | null> => {
-  const users = await readUsers();
-  return users.find((user) => user.email.toLowerCase() === email.toLowerCase()) ?? null;
+  await ensureDatabaseSchema();
+  const user = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    include: { profile: true },
+  });
+
+  return user ? mapPrismaUserToStored(user) : null;
 };
 
 export const findUserById = async (id: string): Promise<StoredUser | null> => {
-  const users = await readUsers();
-  return users.find((user) => user.id === id) ?? null;
+  await ensureDatabaseSchema();
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { profile: true },
+  });
+
+  return user ? mapPrismaUserToStored(user) : null;
+};
+
+export const findUserByUsername = async (username: string): Promise<StoredUser | null> => {
+  await ensureDatabaseSchema();
+  const user = await prisma.user.findFirst({
+    where: { username },
+    include: { profile: true },
+  });
+
+  return user ? mapPrismaUserToStored(user) : null;
 };
 
 export const createUser = async (params: {
@@ -56,24 +77,77 @@ export const createUser = async (params: {
   email: string;
   passwordHash: string;
 }): Promise<AuthUser> => {
-  const users = await readUsers();
-  const existing = users.find((user) => user.email.toLowerCase() === params.email.toLowerCase());
+  await ensureDatabaseSchema();
+  const email = params.email.toLowerCase();
 
-  if (existing) {
+  const [emailInUse, usernameInUse] = await Promise.all([
+    prisma.user.findUnique({ where: { email } }),
+    prisma.user.findUnique({ where: { username: params.username }, select: { id: true } }),
+  ]);
+
+  if (emailInUse) {
     throw new Error('EMAIL_IN_USE');
   }
+  if (usernameInUse) {
+    throw new Error('USERNAME_IN_USE');
+  }
 
-  const nextUser: StoredUser = {
-    id: randomUUID(),
-    username: params.username,
-    email: params.email,
-    passwordHash: params.passwordHash,
+  const created = await prisma.user.create({
+    data: {
+      id: randomUUID(),
+      username: params.username,
+      email,
+      passwordHash: params.passwordHash,
+      profile: {
+        create: createDefaultProfile(params.username),
+      },
+    },
+    include: { profile: true },
+  });
+
+  return toPublicUser(mapPrismaUserToStored(created));
+};
+
+export const updateUserProfile = async (userId: string, patch: Partial<UserProfile>): Promise<StoredUser | null> => {
+  await ensureDatabaseSchema();
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  const baseProfile = existing.profile
+    ? {
+        nickname: existing.profile.nickname,
+        location: existing.profile.location,
+        bio: existing.profile.bio,
+        avatarUrl: existing.profile.avatarUrl,
+      }
+    : createDefaultProfile(existing.username);
+
+  const nextProfile = {
+    ...baseProfile,
+    ...patch,
   };
 
-  users.push(nextUser);
-  await writeUsers(users);
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      profile: existing.profile
+        ? {
+            update: nextProfile,
+          }
+        : {
+            create: nextProfile,
+          },
+    },
+    include: { profile: true },
+  });
 
-  return toPublicUser(nextUser);
+  return mapPrismaUserToStored(updated);
 };
 
 export const mapStoredUserToPublic = toPublicUser;

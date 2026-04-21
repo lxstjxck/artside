@@ -1,0 +1,77 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum SavedWorkKind {
+  popular
+  recommendation
+}
+
+model User {
+  id           String         @id
+  username     String         @unique
+  email        String         @unique
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  profile      Profile?
+  works        Work[]
+  savedWorks   SavedWork[]
+  notifications Notification[]
+}
+
+model Profile {
+  id        Int      @id @default(autoincrement())
+  userId    String   @unique
+  nickname  String
+  location  String
+  bio       String
+  avatarUrl String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Work {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  externalId Int
+  title      String
+  category   String
+  featured   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, externalId])
+}
+
+model SavedWork {
+  id        Int           @id @default(autoincrement())
+  userId    String
+  kind      SavedWorkKind
+  targetId  Int
+  savedAt   DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, targetId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  text      String
+  unread    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

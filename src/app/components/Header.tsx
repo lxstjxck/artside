@@ -6,21 +6,31 @@ import { usePathname } from 'next/navigation';
 import AuthModal from './AuthModal';
 import type { AuthUser } from '@/lib/auth-types';
 
+type HeaderNotification = {
+  id: number;
+  text: string;
+  unread: boolean;
+};
+
+const DEFAULT_NOTIFICATIONS: HeaderNotification[] = [
+  { id: 1, text: 'Новый комментарий к вашей работе', unread: true },
+  { id: 2, text: 'Пользователь added_you в подписках', unread: true },
+  { id: 3, text: 'Подборка недели уже доступна', unread: true },
+];
+
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    { id: 1, text: 'Новый комментарий к вашей работе', unread: true },
-    { id: 2, text: 'Пользователь added_you в подписках', unread: true },
-    { id: 3, text: 'Подборка недели уже доступна', unread: true },
-  ]);
+  const [notifications, setNotifications] = useState<HeaderNotification[]>(DEFAULT_NOTIFICATIONS);
   const [avatarUrl] = useState<string | null>(null);
   const profileUsername = currentUser?.username ?? 'artside_user';
   const profileHref = `/profile/${profileUsername}`;
   const profileMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
+  const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const pathname = usePathname();
   const isProfilePage = pathname.startsWith('/profile/');
   const hasUnreadNotifications = notifications.some((item) => item.unread);
@@ -45,16 +55,40 @@ export default function Header() {
     setIsNotificationsOpen((current) => {
       const next = !current;
       if (next) {
-        setNotifications((items) =>
-          items.map((item) => ({
-            ...item,
-            unread: false,
-          }))
-        );
+        const markNotificationsAsRead = async () => {
+          const response = await fetch('/api/notifications/read-all', { method: 'POST' });
+          if (!response.ok) return;
+          const data = (await response.json()) as { notifications?: HeaderNotification[] };
+          if (Array.isArray(data.notifications)) {
+            setNotifications(data.notifications);
+          }
+        };
+
+        void markNotificationsAsRead();
       }
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const inPanel = notificationsContainerRef.current?.contains(target);
+      const inButton = notificationsButtonRef.current?.contains(target);
+
+      if (!inPanel && !inButton) {
+        setIsNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isNotificationsOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,6 +121,41 @@ export default function Header() {
 
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setNotifications(DEFAULT_NOTIFICATIONS);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadNotifications = async () => {
+      try {
+        const response = await fetch('/api/notifications', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        if (!response.ok) return;
+
+        const data = (await response.json()) as {
+          authenticated: boolean;
+          notifications?: HeaderNotification[];
+        };
+
+        if (data.authenticated && Array.isArray(data.notifications)) {
+          setNotifications(data.notifications);
+        }
+      } catch {
+        setNotifications(DEFAULT_NOTIFICATIONS);
+      }
+    };
+
+    void loadNotifications();
+
+    return () => controller.abort();
+  }, [currentUser]);
 
   return (
     <>
@@ -157,6 +226,7 @@ export default function Header() {
               <>
                 <div className="relative">
                   <button
+                    ref={notificationsButtonRef}
                     type="button"
                     aria-label="Уведомления"
                     aria-expanded={isNotificationsOpen}
@@ -171,6 +241,7 @@ export default function Header() {
                   </button>
 
                   <div
+                    ref={notificationsContainerRef}
                     className={`absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out origin-top-right ${
                       isNotificationsOpen
                         ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
@@ -178,12 +249,12 @@ export default function Header() {
                     }`}
                   >
                     <div className="border-b border-white/10 px-3 py-2 text-sm font-semibold text-white">Уведомления</div>
-                    <div className="space-y-1 p-1">
+                    <div className="p-1">
                       {notifications.map((item) => (
                         <button
                           key={item.id}
                           type="button"
-                          className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                          className="block w-full border-b border-white/10 px-3 py-2 text-left text-sm text-white/80 transition-colors last:border-b-0 hover:bg-white/10 hover:text-white"
                         >
                           {item.text}
                         </button>

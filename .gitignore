@@ -19,6 +19,8 @@
 
 # local app data
 /data/users.json
+/data/saved-works.json
+/data/works.json
 
 # production
 /build
@@ -42,3 +44,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+/dev.db
+/dev.db-journal

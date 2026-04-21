@@ -1,6 +1,9 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
+import { homeFeedData } from '@/lib/home-feed';
+import type { SavedWorkItem } from '@/lib/saved-work-types';
+import type { AuthUser, UserProfile } from '@/lib/auth-types';
 
 type ProfilePageProps = {
   params: Promise<{
@@ -15,82 +18,217 @@ type UserWork = {
   featured?: boolean;
 };
 
-type SavedRecommendation = {
-  id: number;
-  ratio: {
-    width: number;
-    height: number;
-  };
+type ProfileApiResponse = {
+  user: AuthUser;
+  profile: UserProfile;
+  works: UserWork[];
+  isOwner: boolean;
+  authenticated: boolean;
 };
-
-const SAVED_RECOMMENDATIONS_KEY = 'artside.savedRecommendations';
-
-const userWorks: UserWork[] = [
-  { id: 1, title: 'Работа 1', category: 'Иллюстрация', featured: true },
-  { id: 2, title: 'Работа 2', category: 'Иллюстрация', featured: true },
-  { id: 3, title: 'Работа 3', category: 'UI/UX', featured: true },
-  { id: 4, title: 'Работа 4', category: 'Дизайн сайтов', featured: true },
-  { id: 5, title: 'Работа 5', category: 'Иллюстрация' },
-  { id: 6, title: 'Работа 6', category: 'Иллюстрация' },
-  { id: 7, title: 'Работа 7', category: 'Иллюстрация' },
-  { id: 8, title: 'Работа 8', category: 'Дизайн сайтов' },
-  { id: 9, title: 'Работа 9', category: 'Дизайн сайтов' },
-  { id: 10, title: 'Работа 10', category: 'UI/UX' },
-  { id: 11, title: 'Работа 11', category: 'UI/UX' },
-  { id: 12, title: 'Работа 12', category: 'Fan art' },
-];
-
-const recommendationPool: SavedRecommendation[] = Array.from({ length: 16 }, (_, index) => ({
-  id: index + 1,
-  ratio: [
-    { width: 4, height: 5 },
-    { width: 4, height: 6 },
-    { width: 3, height: 4 },
-    { width: 4, height: 7 },
-    { width: 1, height: 1 },
-    { width: 5, height: 7 },
-    { width: 4, height: 5 },
-    { width: 3, height: 5 },
-  ][index % 8],
-}));
 
 export default function ProfilePage({ params }: ProfilePageProps) {
   const { username } = use(params);
+
+  const [profileUser, setProfileUser] = useState<AuthUser | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [works, setWorks] = useState<UserWork[]>([]);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
+
   const [isEditing, setIsEditing] = useState(false);
-  const [savedRecommendations] = useState<SavedRecommendation[]>(() => {
-    if (typeof window === 'undefined') return [];
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
 
-    const saved = window.localStorage.getItem(SAVED_RECOMMENDATIONS_KEY);
-    if (!saved) return [];
+  const [isSavedLoading, setIsSavedLoading] = useState(true);
+  const [savedError, setSavedError] = useState<string | null>(null);
+  const [savedItems, setSavedItems] = useState<SavedWorkItem[]>([]);
 
-    try {
-      const savedIds = JSON.parse(saved) as number[];
-      return recommendationPool.filter((item) => savedIds.includes(item.id));
-    } catch {
-      window.localStorage.removeItem(SAVED_RECOMMENDATIONS_KEY);
-      return [];
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadProfile = async () => {
+      try {
+        setIsPageLoading(true);
+        setPageError(null);
+
+        const response = await fetch(`/api/profile/${encodeURIComponent(username)}`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            setPageError('Профиль не найден.');
+            return;
+          }
+
+          throw new Error(`Profile request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as ProfileApiResponse;
+        setProfileUser(data.user);
+        setProfile(data.profile);
+        setWorks(data.works ?? []);
+        setIsOwner(data.isOwner);
+        setIsAuthenticated(data.authenticated);
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        setPageError('Не удалось загрузить профиль. Попробуйте обновить страницу.');
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsPageLoading(false);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => controller.abort();
+  }, [username]);
+
+  useEffect(() => {
+    if (!isOwner || !isAuthenticated) {
+      setSavedItems([]);
+      setIsSavedLoading(false);
+      return;
     }
-  });
-  const [profile, setProfile] = useState({
-    avatarUrl: '',
-    nickname: username.toUpperCase(),
-    location: 'Москва, Россия',
-    bio: 'Цифровой художник и дизайнер интерфейсов. Исследую визуальные ритмы, собираю атмосферные сцены и работаю на стыке иллюстрации, айдентики и веба.',
-  });
 
-  const featuredWorks = userWorks.filter((work) => work.featured).slice(0, 4);
-  const publishedWorks = userWorks.filter((work) => !work.featured);
+    const controller = new AbortController();
+
+    const loadSavedWorks = async () => {
+      try {
+        setIsSavedLoading(true);
+        setSavedError(null);
+
+        const response = await fetch('/api/saved-works', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          throw new Error(`Saved works request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as { authenticated: boolean; items: SavedWorkItem[] };
+        if (!data.authenticated) {
+          setSavedItems([]);
+          return;
+        }
+
+        setSavedItems(data.items ?? []);
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        setSavedError('Не удалось загрузить сохраненные работы.');
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSavedLoading(false);
+        }
+      }
+    };
+
+    void loadSavedWorks();
+
+    return () => controller.abort();
+  }, [isOwner, isAuthenticated]);
+
+  const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
+  const publishedWorks = works.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
     category,
     works: publishedWorks.filter((work) => work.category === category),
   }));
 
-  const updateProfile = (field: keyof typeof profile, value: string) => {
-    setProfile((current) => ({
-      ...current,
-      [field]: value,
-    }));
+  const recommendationMap = useMemo(
+    () => new Map(homeFeedData.recommendations.map((item) => [item.id, item])),
+    []
+  );
+  const popularMap = useMemo(
+    () => new Map(homeFeedData.popular.map((item) => [item.id, item])),
+    []
+  );
+
+  const savedCards = savedItems
+    .map((item) => {
+      if (item.kind === 'popular') {
+        const popular = popularMap.get(item.id);
+        if (!popular) return null;
+        return {
+          key: `saved-popular-${item.id}`,
+          aspectRatio: '1 / 1',
+          title: popular.author,
+        };
+      }
+
+      const recommendation = recommendationMap.get(item.id);
+      if (!recommendation) return null;
+      return {
+        key: `saved-recommend-${item.id}`,
+        aspectRatio: `${recommendation.ratio.width} / ${recommendation.ratio.height}`,
+        title: '',
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const updateProfileField = (field: keyof UserProfile, value: string) => {
+    setProfile((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        [field]: value,
+      };
+    });
   };
+
+  const submitProfileChanges = async () => {
+    if (!profile || !isOwner) return;
+
+    try {
+      setIsSavingProfile(true);
+      setProfileMessage(null);
+
+      const response = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(profile),
+      });
+
+      const data = (await response.json()) as { message?: string; profile?: UserProfile };
+
+      if (!response.ok || !data.profile) {
+        setProfileMessage(data.message ?? 'Не удалось сохранить изменения профиля.');
+        return;
+      }
+
+      setProfile(data.profile);
+      setProfileMessage('Профиль сохранен.');
+      setIsEditing(false);
+    } catch {
+      setProfileMessage('Сетевая ошибка при сохранении профиля.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  if (isPageLoading) {
+    return (
+      <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-8 lg:px-8">
+        <p className="text-sm text-white/75">Загрузка профиля...</p>
+      </main>
+    );
+  }
+
+  if (pageError || !profile || !profileUser) {
+    return (
+      <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-8 lg:px-8">
+        <p className="text-sm text-red-300">{pageError ?? 'Профиль недоступен.'}</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-4 lg:px-8 lg:py-5">
@@ -112,8 +250,9 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               <input
                 type="text"
                 value={profile.nickname}
-                onChange={(event) => updateProfile('nickname', event.target.value)}
+                onChange={(event) => updateProfileField('nickname', event.target.value)}
                 className="mb-5 w-full rounded-xl border border-black/15 bg-white/55 px-4 py-2 text-center text-2xl font-black tracking-wide text-black outline-none"
+                disabled={!isOwner || isSavingProfile}
               />
             ) : (
               <h1 className="mb-5 text-center text-[2rem] font-black tracking-wide">{profile.nickname}</h1>
@@ -128,29 +267,49 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 <input
                   type="text"
                   value={profile.location}
-                  onChange={(event) => updateProfile('location', event.target.value)}
+                  onChange={(event) => updateProfileField('location', event.target.value)}
                   className="w-full rounded-lg border border-black/15 bg-white/55 px-3 py-2 text-sm text-black outline-none"
+                  disabled={!isOwner || isSavingProfile}
                 />
               ) : (
                 <span>{profile.location}</span>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsEditing((value) => !value)}
-              className="mb-5 h-12 w-full rounded-xl bg-[#111111] px-4 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#1c1c1c]"
-            >
-              {isEditing ? 'Сохранить' : 'Редактировать'}
-            </button>
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isEditing) {
+                    void submitProfileChanges();
+                    return;
+                  }
+                  setIsEditing(true);
+                  setProfileMessage(null);
+                }}
+                disabled={isSavingProfile}
+                className="mb-5 h-12 w-full rounded-xl bg-[#111111] px-4 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#1c1c1c] disabled:opacity-60"
+              >
+                {isSavingProfile ? 'Сохраняем...' : isEditing ? 'Сохранить' : 'Редактировать'}
+              </button>
+            ) : (
+              <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-black/70">Публичный профиль</p>
+            )}
 
-            {isEditing && (
+            {profileMessage && (
+              <p className={`mb-4 text-sm ${profileMessage.includes('сохранен') ? 'text-emerald-800' : 'text-red-700'}`}>
+                {profileMessage}
+              </p>
+            )}
+
+            {isEditing && isOwner && (
               <input
                 type="text"
                 value={profile.avatarUrl}
-                onChange={(event) => updateProfile('avatarUrl', event.target.value)}
+                onChange={(event) => updateProfileField('avatarUrl', event.target.value)}
                 placeholder="Ссылка на аватар"
                 className="mb-5 w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none placeholder:text-black/45"
+                disabled={isSavingProfile}
               />
             )}
 
@@ -158,8 +317,9 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               {isEditing ? (
                 <textarea
                   value={profile.bio}
-                  onChange={(event) => updateProfile('bio', event.target.value)}
+                  onChange={(event) => updateProfileField('bio', event.target.value)}
                   className="min-h-[210px] w-full resize-none rounded-xl border border-black/10 bg-white/58 p-4 text-sm leading-6 text-black/80 outline-none"
+                  disabled={!isOwner || isSavingProfile}
                 />
               ) : (
                 <p className="min-h-[210px] text-sm leading-6 text-black/78">{profile.bio}</p>
@@ -178,21 +338,31 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             ))}
           </div>
 
-          {savedRecommendations.length > 0 && (
+          {isOwner && (
             <div className="space-y-4">
               <span className="inline-flex rounded-lg bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black">
                 Сохраненки
               </span>
-              <div className="recommend-masonry">
-                {savedRecommendations.map((item) => (
-                  <article key={item.id} className="recommend-card">
-                    <div
-                      className="recommend-card-media"
-                      style={{ aspectRatio: `${item.ratio.width} / ${item.ratio.height}` }}
-                    />
-                  </article>
-                ))}
-              </div>
+
+              {isSavedLoading && <p className="text-sm text-white/65">Загрузка сохраненных работ...</p>}
+              {savedError && <p className="text-sm text-red-300">{savedError}</p>}
+              {!isSavedLoading && !savedError && savedCards.length === 0 && (
+                <p className="text-sm text-white/70">У вас пока нет сохраненных работ.</p>
+              )}
+
+              {!isSavedLoading && !savedError && savedCards.length > 0 && (
+                <div className="recommend-masonry">
+                  {savedCards.map((item) => (
+                    <article key={item.key} className="recommend-card">
+                      <div
+                        className="recommend-card-media"
+                        style={{ aspectRatio: item.aspectRatio }}
+                      />
+                      {item.title && <p className="px-2 py-2 text-xs uppercase tracking-[0.08em] text-white/72">{item.title}</p>}
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

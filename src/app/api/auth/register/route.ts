@@ -48,6 +48,9 @@ export async function POST(request: Request) {
     if ((error as Error).message === 'EMAIL_IN_USE') {
       return NextResponse.json({ message: 'Пользователь с таким email уже существует.' }, { status: 409 });
     }
+    if ((error as Error).message === 'USERNAME_IN_USE') {
+      return NextResponse.json({ message: 'Имя пользователя уже занято.' }, { status: 409 });
+    }
 
     return NextResponse.json({ message: 'Не удалось создать пользователя.' }, { status: 500 });
   }

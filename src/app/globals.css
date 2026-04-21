@@ -311,6 +311,11 @@ body {
   transform: scale(0.94);
 }
 
+.save-work-btn:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
 .save-work-btn-active {
   background: rgba(255, 255, 255, 0.92);
   color: #111111;
@@ -429,6 +434,68 @@ body {
   box-shadow: 0 0 0 2px rgba(17, 17, 17, 0.9);
 }
 
+.modern-alert {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 130, 130, 0.35);
+  background: rgba(120, 20, 20, 0.26);
+  color: #ffd7d7;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.modern-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(120deg, rgba(140, 140, 140, 0.45) 20%, rgba(205, 205, 205, 0.5) 38%, rgba(140, 140, 140, 0.45) 62%);
+  background-size: 220% 100%;
+  animation: shimmer 1.15s linear infinite;
+}
+
+.modern-skeleton-text {
+  width: 58%;
+  height: 11px;
+  border-radius: 9999px;
+}
+
+.modern-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: rgba(255, 255, 255, 0.88);
+  animation: spin 0.9s linear infinite;
+}
+
+.modern-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 22px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(92vw, 360px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 10, 10, 0.9);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.45);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.modern-toast-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: #ffc25c;
+}
+
 .avatar-trigger:hover {
   box-shadow:
     0 10px 20px rgba(0, 0, 0, 0.28),
@@ -462,6 +529,15 @@ body {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @layer utilities {
