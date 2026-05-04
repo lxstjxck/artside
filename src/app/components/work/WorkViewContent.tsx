@@ -1,19 +1,25 @@
+import Image from 'next/image';
+import WorkCloseButton from '@/app/components/work/WorkCloseButton';
 import type { WorkDetail } from '@/lib/work-catalog';
 
 type WorkViewContentProps = {
   work: WorkDetail;
+  closeHref?: string;
 };
 
-export default function WorkViewContent({ work }: WorkViewContentProps) {
+export default function WorkViewContent({ work, closeHref = '/' }: WorkViewContentProps) {
   return (
     <div className="work-view-shell">
+      <WorkCloseButton fallbackHref={closeHref} />
       <div className="work-view-media-wrap">
-        <div className="work-view-media" style={{ aspectRatio: work.aspectRatio }} />
+        <div className="work-view-media">
+          <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
+        </div>
       </div>
 
       <aside className="work-view-side">
         <div className="work-view-top">
-          <p className="work-view-kind">{work.kind === 'popular' ? 'Популярное' : 'Рекомендация'}</p>
+          <p className="work-view-kind">{work.category}</p>
           <h2 className="work-view-title">{work.title}</h2>
           <p className="work-view-author">Автор: {work.author}</p>
         </div>

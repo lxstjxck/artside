@@ -1,9 +1,10 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
-import { homeFeedData } from '@/lib/home-feed';
+import Image from 'next/image';
 import type { SavedWorkItem } from '@/lib/saved-work-types';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
+import type { WorkSummary } from '@/lib/work-store';
 
 type ProfilePageProps = {
   params: Promise<{
@@ -11,19 +12,19 @@ type ProfilePageProps = {
   }>;
 };
 
-type UserWork = {
-  id: number;
-  title: string;
-  category: string;
-  featured?: boolean;
-};
-
 type ProfileApiResponse = {
   user: AuthUser;
   profile: UserProfile;
-  works: UserWork[];
+  works: WorkSummary[];
   isOwner: boolean;
   authenticated: boolean;
+};
+
+const emptyWorkForm = {
+  title: '',
+  category: 'Графический дизайн',
+  description: '',
+  tags: '',
 };
 
 export default function ProfilePage({ params }: ProfilePageProps) {
@@ -31,7 +32,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
 
   const [profileUser, setProfileUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [works, setWorks] = useState<UserWork[]>([]);
+  const [works, setWorks] = useState<WorkSummary[]>([]);
   const [isOwner, setIsOwner] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -45,6 +46,14 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [isSavedLoading, setIsSavedLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
   const [savedItems, setSavedItems] = useState<SavedWorkItem[]>([]);
+
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [editingWork, setEditingWork] = useState<WorkSummary | null>(null);
+  const [workForm, setWorkForm] = useState(emptyWorkForm);
+  const [workImage, setWorkImage] = useState<File | null>(null);
+  const [workImagePreview, setWorkImagePreview] = useState<string | null>(null);
+  const [isPublishingWork, setIsPublishingWork] = useState(false);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,12 +122,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         }
 
         const data = (await response.json()) as { authenticated: boolean; items: SavedWorkItem[] };
-        if (!data.authenticated) {
-          setSavedItems([]);
-          return;
-        }
-
-        setSavedItems(data.items ?? []);
+        setSavedItems(data.authenticated ? data.items ?? [] : []);
       } catch (error) {
         if ((error as Error).name === 'AbortError') return;
         setSavedError('Не удалось загрузить сохраненные работы.');
@@ -134,6 +138,17 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     return () => controller.abort();
   }, [isOwner, isAuthenticated]);
 
+  useEffect(() => {
+    if (!workImage) {
+      setWorkImagePreview(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(workImage);
+    setWorkImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [workImage]);
+
   const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
   const publishedWorks = works.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
@@ -141,36 +156,45 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     works: publishedWorks.filter((work) => work.category === category),
   }));
 
-  const recommendationMap = useMemo(
-    () => new Map(homeFeedData.recommendations.map((item) => [item.id, item])),
-    []
-  );
-  const popularMap = useMemo(
-    () => new Map(homeFeedData.popular.map((item) => [item.id, item])),
-    []
+  const savedCards = useMemo(
+    () => savedItems.filter((item): item is SavedWorkItem & { title: string; imageUrl: string } => Boolean(item.title && item.imageUrl)),
+    [savedItems]
   );
 
-  const savedCards = savedItems
-    .map((item) => {
-      if (item.kind === 'popular') {
-        const popular = popularMap.get(item.id);
-        if (!popular) return null;
-        return {
-          key: `saved-popular-${item.id}`,
-          aspectRatio: '1 / 1',
-          title: popular.author,
-        };
-      }
+  const closePublishModal = () => {
+    if (isPublishingWork) return;
+    setIsPublishModalOpen(false);
+    setEditingWork(null);
+    resetWorkForm();
+    setPublishMessage(null);
+  };
 
-      const recommendation = recommendationMap.get(item.id);
-      if (!recommendation) return null;
-      return {
-        key: `saved-recommend-${item.id}`,
-        aspectRatio: `${recommendation.ratio.width} / ${recommendation.ratio.height}`,
-        title: '',
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const resetWorkForm = () => {
+    setWorkForm(emptyWorkForm);
+    setWorkImage(null);
+    setWorkImagePreview(null);
+  };
+
+  const openCreateWorkModal = () => {
+    resetWorkForm();
+    setEditingWork(null);
+    setPublishMessage(null);
+    setIsPublishModalOpen(true);
+  };
+
+  const openEditWorkModal = (work: WorkSummary) => {
+    setEditingWork(work);
+    setWorkForm({
+      title: work.title,
+      category: work.category,
+      description: work.description,
+      tags: work.tags.join(', '),
+    });
+    setWorkImage(null);
+    setWorkImagePreview(null);
+    setPublishMessage(null);
+    setIsPublishModalOpen(true);
+  };
 
   const updateProfileField = (field: keyof UserProfile, value: string) => {
     setProfile((current) => {
@@ -214,6 +238,70 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     }
   };
 
+  const submitWork = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPublishMessage(null);
+
+    if (!editingWork && !workImage) {
+      setPublishMessage('Выберите изображение с устройства.');
+      return;
+    }
+
+    try {
+      setIsPublishingWork(true);
+      const formData = new FormData();
+      formData.set('title', workForm.title);
+      formData.set('category', workForm.category);
+      formData.set('description', workForm.description);
+      formData.set('tags', workForm.tags);
+      if (workImage) {
+        formData.set('image', workImage);
+      }
+
+      const endpoint = editingWork ? `/api/works/${editingWork.id}` : '/api/works';
+      const response = await fetch(endpoint, {
+        method: editingWork ? 'PATCH' : 'POST',
+        body: formData,
+      });
+      const data = (await response.json()) as { message?: string; work?: WorkSummary };
+
+      if (!response.ok || !data.work) {
+        setPublishMessage(data.message ?? 'Не удалось опубликовать работу.');
+        return;
+      }
+
+      setWorks((current) => {
+        if (editingWork) {
+          return current.map((item) => (item.id === data.work!.id ? data.work! : item));
+        }
+        return [data.work!, ...current];
+      });
+      resetWorkForm();
+      setEditingWork(null);
+      setPublishMessage(null);
+      setIsPublishModalOpen(false);
+    } catch {
+      setPublishMessage('Сетевая ошибка при публикации работы.');
+    } finally {
+      setIsPublishingWork(false);
+    }
+  };
+
+  const deleteOwnWork = async (work: WorkSummary) => {
+    const confirmed = window.confirm(`Удалить работу "${work.title}"?`);
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/works/${work.id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      setProfileMessage(data.message ?? 'Не удалось удалить работу.');
+      return;
+    }
+
+    setWorks((current) => current.filter((item) => item.id !== work.id));
+    setProfileMessage('Работа удалена.');
+  };
+
   if (isPageLoading) {
     return (
       <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-8 lg:px-8">
@@ -237,7 +325,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
           <div className="flex flex-col items-center">
             <div className="mb-5 flex h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-[#111111]">
               {profile.avatarUrl ? (
-                <img src={profile.avatarUrl} alt="Аватар профиля" className="h-full w-full object-cover" />
+                <Image src={profile.avatarUrl} alt="Аватар профиля" width={160} height={160} unoptimized className="h-full w-full object-cover" />
               ) : (
                 <svg width="62" height="62" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.6">
                   <circle cx="12" cy="8" r="4.2" />
@@ -277,21 +365,30 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             </div>
 
             {isOwner ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (isEditing) {
-                    void submitProfileChanges();
-                    return;
-                  }
-                  setIsEditing(true);
-                  setProfileMessage(null);
-                }}
-                disabled={isSavingProfile}
-                className="mb-5 h-12 w-full rounded-xl bg-[#111111] px-4 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#1c1c1c] disabled:opacity-60"
-              >
-                {isSavingProfile ? 'Сохраняем...' : isEditing ? 'Сохранить' : 'Редактировать'}
-              </button>
+              <div className="mb-5 grid w-full grid-cols-1 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditing) {
+                      void submitProfileChanges();
+                      return;
+                    }
+                    setIsEditing(true);
+                    setProfileMessage(null);
+                  }}
+                  disabled={isSavingProfile}
+                  className="h-12 w-full rounded-xl bg-[#111111] px-4 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#1c1c1c] disabled:opacity-60"
+                >
+                  {isSavingProfile ? 'Сохраняем...' : isEditing ? 'Сохранить' : 'Редактировать'}
+                </button>
+                <button
+                  type="button"
+                  onClick={openCreateWorkModal}
+                  className="h-12 w-full rounded-xl border border-black/15 bg-white/70 px-4 text-sm font-black uppercase tracking-[0.12em] text-black transition-colors hover:bg-white"
+                >
+                  Загрузить работу
+                </button>
+              </div>
             ) : (
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-black/70">Публичный профиль</p>
             )}
@@ -331,9 +428,17 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         <section className="space-y-7 pt-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {featuredWorks.map((work) => (
-              <div key={work.id} className="space-y-2">
-                <div className="aspect-[4/3] rounded-[4px] bg-[#8b8b8b]" />
-                <p className="text-xs uppercase tracking-[0.08em] text-white/72">{work.title}</p>
+              <div key={work.id} className="profile-work-card">
+                <a href={`/work/${work.id}`}>
+                  <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
+                  <p>{work.title}</p>
+                </a>
+                {isOwner && (
+                  <div className="profile-work-actions">
+                    <button type="button" onClick={() => openEditWorkModal(work)}>Редактировать</button>
+                    <button type="button" onClick={() => void deleteOwnWork(work)}>Удалить</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -353,13 +458,18 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               {!isSavedLoading && !savedError && savedCards.length > 0 && (
                 <div className="recommend-masonry">
                   {savedCards.map((item) => (
-                    <article key={item.key} className="recommend-card">
-                      <div
-                        className="recommend-card-media"
-                        style={{ aspectRatio: item.aspectRatio }}
-                      />
-                      {item.title && <p className="px-2 py-2 text-xs uppercase tracking-[0.08em] text-white/72">{item.title}</p>}
-                    </article>
+                    <a key={item.id} href={`/work/${item.id}`} className="recommend-card block">
+                      <div className="recommend-card-media">
+                        <Image
+                          src={item.imageUrl}
+                          alt={item.title}
+                          width={item.imageWidth ?? 1200}
+                          height={item.imageHeight ?? 1500}
+                          unoptimized
+                        />
+                      </div>
+                      <p className="px-2 py-2 text-xs uppercase tracking-[0.08em] text-white/72">{item.title}</p>
+                    </a>
                   ))}
                 </div>
               )}
@@ -373,9 +483,17 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               </span>
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
                 {section.works.map((work) => (
-                  <div key={work.id} className="space-y-2">
-                    <div className="aspect-square rounded-lg bg-[#8b8b8b]" />
-                    <p className="text-xs uppercase tracking-[0.08em] text-white/72">{work.title}</p>
+                  <div key={work.id} className="profile-work-card">
+                    <a href={`/work/${work.id}`}>
+                      <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
+                      <p>{work.title}</p>
+                    </a>
+                    {isOwner && (
+                      <div className="profile-work-actions">
+                        <button type="button" onClick={() => openEditWorkModal(work)}>Редактировать</button>
+                        <button type="button" onClick={() => void deleteOwnWork(work)}>Удалить</button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -383,6 +501,48 @@ export default function ProfilePage({ params }: ProfilePageProps) {
           ))}
         </section>
       </div>
+
+      {isPublishModalOpen && (
+        <div className="publish-modal-overlay" onClick={closePublishModal}>
+          <form className="publish-modal" onSubmit={submitWork} onClick={(event) => event.stopPropagation()}>
+            <div className="publish-work-head">
+              <h2>{editingWork ? 'Редактировать работу' : 'Новая работа'}</h2>
+              <button type="button" onClick={closePublishModal} disabled={isPublishingWork} aria-label="Закрыть форму">
+                ×
+              </button>
+            </div>
+
+            <label className="upload-dropzone">
+              {workImagePreview ? (
+                <span className="upload-preview" style={{ backgroundImage: `url(${workImagePreview})` }} />
+              ) : editingWork ? (
+                <span className="upload-preview" style={{ backgroundImage: `url(${editingWork.imageUrl})` }} />
+              ) : (
+                <span>Выберите изображение</span>
+              )}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => setWorkImage(event.target.files?.[0] ?? null)}
+                required={!editingWork}
+              />
+            </label>
+
+            <div className="publish-work-grid">
+              <input value={workForm.title} onChange={(event) => setWorkForm((current) => ({ ...current, title: event.target.value }))} placeholder="Название" required />
+              <input value={workForm.category} onChange={(event) => setWorkForm((current) => ({ ...current, category: event.target.value }))} placeholder="Категория" required />
+              <input value={workForm.tags} onChange={(event) => setWorkForm((current) => ({ ...current, tags: event.target.value }))} placeholder="Теги через запятую" />
+            </div>
+            <textarea value={workForm.description} onChange={(event) => setWorkForm((current) => ({ ...current, description: event.target.value }))} placeholder="Описание работы" required />
+
+            {publishMessage && <p className="text-sm text-red-200">{publishMessage}</p>}
+
+            <button className="publish-submit-btn" type="submit" disabled={isPublishingWork}>
+              {isPublishingWork ? 'Сохранение...' : editingWork ? 'Сохранить изменения' : 'Опубликовать'}
+            </button>
+          </form>
+        </div>
+      )}
     </main>
   );
 }

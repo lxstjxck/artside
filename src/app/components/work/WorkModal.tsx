@@ -29,7 +29,7 @@ export default function WorkModal({ work }: WorkModalProps) {
         <button type="button" className="work-modal-close" onClick={() => router.back()} aria-label="Закрыть просмотр">
           ×
         </button>
-        <WorkViewContent work={work} />
+        <WorkViewContent work={work} closeHref="/" />
       </div>
     </div>
   );

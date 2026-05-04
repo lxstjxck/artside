@@ -2,20 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import type { AuthUser } from '@/lib/auth-types';
+import { getPasswordChecks, isPasswordValid as validatePassword, isUsernameValid } from '@/lib/auth-validation';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: (user: AuthUser) => void;
 }
-
-const PASSWORD_RULES = {
-  minLength: (value: string) => value.length >= 8,
-  hasUppercase: (value: string) => /[A-Z]/.test(value),
-  hasLowercase: (value: string) => /[a-z]/.test(value),
-  hasNumber: (value: string) => /\d/.test(value),
-  hasSpecial: (value: string) => /[^A-Za-z0-9]/.test(value),
-};
 
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [isLogin, setIsLogin] = useState(true);
@@ -33,19 +26,9 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
     setIsSubmitted(false);
   };
 
-  const passwordChecks = useMemo(
-    () => ({
-      minLength: PASSWORD_RULES.minLength(password),
-      hasUppercase: PASSWORD_RULES.hasUppercase(password),
-      hasLowercase: PASSWORD_RULES.hasLowercase(password),
-      hasNumber: PASSWORD_RULES.hasNumber(password),
-      hasSpecial: PASSWORD_RULES.hasSpecial(password),
-    }),
-    [password]
-  );
+  const passwordChecks = useMemo(() => getPasswordChecks(password), [password]);
 
-  const isPasswordValid = Object.values(passwordChecks).every(Boolean);
-  const isRegisterFormValid = username.trim().length > 1 && email.trim().length > 0 && isPasswordValid;
+  const isRegisterFormValid = isUsernameValid(username.trim()) && email.trim().length > 0 && validatePassword(password);
   const isLoginFormValid = email.trim().length > 0 && password.trim().length > 0;
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -161,7 +144,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             )}
 
             {!isLogin && isSubmitted && !isRegisterFormValid && (
-              <p className="text-sm text-red-300">Заполните поля и выполните требования к паролю.</p>
+              <p className="text-sm text-red-300">Имя: 2-24 символа, латиница, цифры или _. Пароль должен выполнить все требования.</p>
             )}
             {errorMessage && <p className="text-sm text-red-300">{errorMessage}</p>}
 

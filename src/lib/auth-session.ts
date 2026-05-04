@@ -6,8 +6,12 @@ const SESSION_COOKIE = 'artside_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 const getSecret = () => {
-  const value = process.env.AUTH_SECRET ?? 'dev-only-auth-secret-change-me';
-  return new TextEncoder().encode(value);
+  const value = process.env.AUTH_SECRET;
+  if (!value && process.env.NODE_ENV === 'production') {
+    throw new Error('AUTH_SECRET is required in production.');
+  }
+
+  return new TextEncoder().encode(value ?? 'dev-only-auth-secret-change-me');
 };
 
 export const createSessionToken = async (user: AuthUser) => {

@@ -1,9 +1,12 @@
-export type SavedWorkKind = 'popular' | 'recommendation';
-
 export type SavedWorkItem = {
-  kind: SavedWorkKind;
   id: number;
   savedAt: string;
+  title?: string;
+  category?: string;
+  author?: string;
+  imageUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
 };
 
 export type SavedWorksResponse = {

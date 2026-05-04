@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { NextResponse } from 'next/server';
 import { createSessionToken, setSessionCookie } from '@/lib/auth-session';
+import { isPasswordValid, isUsernameValid } from '@/lib/auth-validation';
 import { createUser } from '@/lib/user-store';
 
 type RegisterBody = {
@@ -24,16 +25,16 @@ export async function POST(request: Request) {
   const email = body.email?.trim().toLowerCase() ?? '';
   const password = body.password ?? '';
 
-  if (username.length < 2) {
-    return NextResponse.json({ message: 'Имя пользователя слишком короткое.' }, { status: 400 });
+  if (!isUsernameValid(username)) {
+    return NextResponse.json({ message: 'Имя пользователя: 2-24 символа, латиница, цифры или _.' }, { status: 400 });
   }
 
   if (!EMAIL_PATTERN.test(email)) {
-    return NextResponse.json({ message: 'Некорректный email.' }, { status: 400 });
+    return NextResponse.json({ message: 'Введите корректный email.' }, { status: 400 });
   }
 
-  if (password.length < 8) {
-    return NextResponse.json({ message: 'Пароль должен быть не короче 8 символов.' }, { status: 400 });
+  if (!isPasswordValid(password)) {
+    return NextResponse.json({ message: 'Пароль должен быть не короче 8 символов и содержать заглавную букву, строчную букву, цифру и спецсимвол.' }, { status: 400 });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);

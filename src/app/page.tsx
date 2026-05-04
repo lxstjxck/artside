@@ -1,9 +1,10 @@
-'use client'
+'use client';
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import type { HomeFeedResponse } from '@/lib/home-feed';
-import type { SavedWorkItem, SavedWorkKind } from '@/lib/saved-work-types';
+import type { HomeFeedResponse, WorkSummary } from '@/lib/home-feed';
+import type { SavedWorkItem } from '@/lib/saved-work-types';
 
 export default function Home() {
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
@@ -12,19 +13,17 @@ export default function Home() {
   const [feedError, setFeedError] = useState<string | null>(null);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [savedPopularIds, setSavedPopularIds] = useState<number[]>([]);
-  const [savedRecommendationIds, setSavedRecommendationIds] = useState<number[]>([]);
+  const [savedWorkIds, setSavedWorkIds] = useState<number[]>([]);
   const [isSavedLoading, setIsSavedLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
-  const [pendingSavedKeys, setPendingSavedKeys] = useState<string[]>([]);
+  const [pendingSavedIds, setPendingSavedIds] = useState<number[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const popularRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
   const applySavedItems = (items: SavedWorkItem[]) => {
-    setSavedPopularIds(items.filter((item) => item.kind === 'popular').map((item) => item.id));
-    setSavedRecommendationIds(items.filter((item) => item.kind === 'recommendation').map((item) => item.id));
+    setSavedWorkIds(items.map((item) => item.id));
   };
 
   useEffect(() => {
@@ -98,7 +97,11 @@ export default function Home() {
 
   const categories = feed?.categories ?? [];
   const popularItems = feed?.popular ?? [];
-  const recommendedItems = feed?.recommendations ?? [];
+  const recommendedItems = useMemo(() => {
+    const items = feed?.recommendations ?? [];
+    if (activeCategories.length === 0) return items;
+    return items.filter((item) => activeCategories.includes(item.category));
+  }, [activeCategories, feed]);
 
   const toggleCategory = (category: string) => {
     setActiveCategories((current) =>
@@ -108,35 +111,27 @@ export default function Home() {
     );
   };
 
-  const clearCategories = () => {
-    setActiveCategories([]);
-  };
-
-  const toggleSavedWork = async (kind: SavedWorkKind, id: number) => {
+  const toggleSavedWork = async (id: number) => {
     if (!isAuthenticated) {
       setToastMessage('Войдите в аккаунт, чтобы сохранять работы.');
       return;
     }
 
-    const key = `${kind}-${id}`;
-    if (pendingSavedKeys.includes(key)) return;
+    if (pendingSavedIds.includes(id)) return;
 
-    const isSaved = kind === 'popular'
-      ? savedPopularIds.includes(id)
-      : savedRecommendationIds.includes(id);
-
+    const isSaved = savedWorkIds.includes(id);
     setSavedError(null);
-    setPendingSavedKeys((current) => [...current, key]);
+    setPendingSavedIds((current) => [...current, id]);
 
     try {
       const response = isSaved
-        ? await fetch(`/api/saved-works/${key}`, { method: 'DELETE' })
+        ? await fetch(`/api/saved-works/${id}`, { method: 'DELETE' })
         : await fetch('/api/saved-works', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ kind, id }),
+            body: JSON.stringify({ id }),
           });
 
       const data = (await response.json()) as { message?: string; items?: SavedWorkItem[] };
@@ -144,8 +139,7 @@ export default function Home() {
       if (!response.ok || !data.items) {
         if (response.status === 401) {
           setIsAuthenticated(false);
-          setSavedPopularIds([]);
-          setSavedRecommendationIds([]);
+          setSavedWorkIds([]);
         }
         throw new Error(data.message ?? 'Не удалось обновить сохранения.');
       }
@@ -154,7 +148,7 @@ export default function Home() {
     } catch (error) {
       setToastMessage((error as Error).message || 'Не удалось обновить сохранения.');
     } finally {
-      setPendingSavedKeys((current) => current.filter((item) => item !== key));
+      setPendingSavedIds((current) => current.filter((item) => item !== id));
     }
   };
 
@@ -182,8 +176,37 @@ export default function Home() {
     track.scrollBy({ left: dir * amount, behavior: 'smooth' });
   };
 
-  const openWork = (kind: SavedWorkKind, id: number) => {
-    router.push(`/work/${kind}-${id}`);
+  const openWork = (id: number) => {
+    router.push(`/work/${id}`);
+  };
+
+  const renderSaveButton = (item: WorkSummary) => {
+    const isSaved = savedWorkIds.includes(item.id);
+    const isPending = pendingSavedIds.includes(item.id);
+
+    return (
+      <button
+        type="button"
+        aria-label={isSaved ? 'Убрать работу из сохраненок' : 'Сохранить работу в профиль'}
+        className={`save-work-btn ${isSaved ? 'save-work-btn-active' : ''}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void toggleSavedWork(item.id);
+        }}
+        disabled={isPending}
+      >
+        <span className="save-work-icon save-work-icon-default" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H11l2 2h4.5A2.5 2.5 0 0 1 20 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
+          </svg>
+        </span>
+        <span className="save-work-icon save-work-icon-check" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <path d="m5 12 4.2 4.2L19 7.8" />
+          </svg>
+        </span>
+      </button>
+    );
   };
 
   return (
@@ -191,15 +214,15 @@ export default function Home() {
       <section className="pb-6">
         <div className="flex w-full flex-wrap items-center justify-between gap-4 px-10 pb-6">
           <div className="flex items-center gap-3">
-            <button className="chip chip-dark">Отслеживаемое</button>
-            <button className="chip chip-dark">Понравившееся</button>
+            <button className="chip chip-dark" type="button">Отслеживаемое</button>
+            <button className="chip chip-dark" type="button">Понравившееся</button>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             {activeCategories.length > 0 && (
               <button
                 className="clear-categories-btn"
-                onClick={clearCategories}
+                onClick={() => setActiveCategories([])}
                 aria-label="Очистить выбранные категории"
                 type="button"
               >
@@ -247,49 +270,24 @@ export default function Home() {
                   </div>
                 ))
               )}
-              {popularItems.map((item) => {
-                const isSaved = savedPopularIds.includes(item.id);
-                const key = `popular-${item.id}`;
-                const isPending = pendingSavedKeys.includes(key);
-
-                return (
-                  <div
-                    key={item.id}
-                    className="popular-card snap-start cursor-pointer"
-                    onClick={() => openWork('popular', item.id)}
-                  >
-                    <div className="popular-thumb">
-                      <div className="popular-overlay">
-                        <button
-                          type="button"
-                          aria-label={isSaved ? 'Убрать работу из сохраненок' : 'Сохранить работу в профиль'}
-                          className={`save-work-btn ${isSaved ? 'save-work-btn-active' : ''}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void toggleSavedWork('popular', item.id);
-                          }}
-                          disabled={isPending}
-                        >
-                          <span className="save-work-icon save-work-icon-default" aria-hidden="true">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                              <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H11l2 2h4.5A2.5 2.5 0 0 1 20 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
-                            </svg>
-                          </span>
-                          <span className="save-work-icon save-work-icon-check" aria-hidden="true">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                              <path d="m5 12 4.2 4.2L19 7.8" />
-                            </svg>
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="popular-meta">
-                      <span className="popular-title">{item.author}</span>
-                      <span className="popular-dot" />
+              {popularItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="popular-card snap-start cursor-pointer"
+                  onClick={() => openWork(item.id)}
+                >
+                  <div className="popular-thumb">
+                    <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                    <div className="popular-overlay">
+                      {renderSaveButton(item)}
                     </div>
                   </div>
-                );
-              })}
+                  <div className="popular-meta">
+                    <span className="popular-title">{item.title}</span>
+                    <span className="popular-author">{item.author}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -308,52 +306,31 @@ export default function Home() {
             {isFeedLoading && recommendedItems.length === 0 && (
               Array.from({ length: 10 }, (_, index) => (
                 <article key={`recommend-loading-${index}`} className="recommend-card">
-                  <div className="recommend-card-media modern-skeleton" style={{ aspectRatio: '4 / 5' }} />
+                  <div className="recommend-card-media modern-skeleton" />
                 </article>
               ))
             )}
-            {recommendedItems.map((item) => {
-              const isSaved = savedRecommendationIds.includes(item.id);
-              const key = `recommendation-${item.id}`;
-              const isPending = pendingSavedKeys.includes(key);
-
-              return (
-                <article
-                  key={item.id}
-                  className="recommend-card cursor-pointer"
-                  onClick={() => openWork('recommendation', item.id)}
-                >
-                  <div
-                    className="recommend-card-media"
-                    style={{ aspectRatio: `${item.ratio.width} / ${item.ratio.height}` }}
-                  >
-                    <div className="recommend-card-overlay">
-                      <button
-                        type="button"
-                        aria-label={isSaved ? 'Убрать из сохраненок' : 'Сохранить в сохраненки'}
-                        className={`save-work-btn ${isSaved ? 'save-work-btn-active' : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void toggleSavedWork('recommendation', item.id);
-                        }}
-                        disabled={isPending}
-                      >
-                        <span className="save-work-icon save-work-icon-default" aria-hidden="true">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                            <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H11l2 2h4.5A2.5 2.5 0 0 1 20 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
-                          </svg>
-                        </span>
-                        <span className="save-work-icon save-work-icon-check" aria-hidden="true">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                            <path d="m5 12 4.2 4.2L19 7.8" />
-                          </svg>
-                        </span>
-                      </button>
-                    </div>
+            {!isFeedLoading && recommendedItems.length === 0 && (
+              <p className="text-sm text-white/70">В выбранных категориях пока нет работ.</p>
+            )}
+            {recommendedItems.map((item) => (
+              <article
+                key={item.id}
+                className="recommend-card cursor-pointer"
+                onClick={() => openWork(item.id)}
+              >
+                <div className="recommend-card-media">
+                  <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                  <div className="recommend-card-overlay">
+                    {renderSaveButton(item)}
                   </div>
-                </article>
-              );
-            })}
+                </div>
+                <div className="recommend-card-info">
+                  <p>{item.title}</p>
+                  <span>{item.category}</span>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>

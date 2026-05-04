@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { homeFeedData } from '@/lib/home-feed';
+import { listHomeFeed } from '@/lib/home-feed';
 
 export async function GET() {
-  return NextResponse.json(homeFeedData);
+  const feed = await listHomeFeed();
+  return NextResponse.json(feed);
 }

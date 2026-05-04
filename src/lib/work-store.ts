@@ -1,63 +1,512 @@
 import { ensureDatabaseSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 
-export type UserWork = {
+export type WorkSummary = {
   id: number;
   title: string;
   category: string;
+  author: string;
+  authorUsername: string;
+  imageUrl: string;
+  imageKey?: string | null;
+  imageWidth: number;
+  imageHeight: number;
+  description: string;
+  tags: string[];
+  featured: boolean;
+  createdAt: string;
+};
+
+export type WorkComment = {
+  id: number;
+  author: string;
+  text: string;
+  postedAt: string;
+};
+
+export type WorkDetail = WorkSummary & {
+  description: string;
+  views: number;
+  likes: number;
+  comments: WorkComment[];
+  tags: string[];
+  publishedAt: string;
+};
+
+export type CreateWorkInput = {
+  title: string;
+  category: string;
+  description: string;
+  imageUrl: string;
+  imageKey?: string | null;
+  imageWidth: number;
+  imageHeight: number;
+  tags: string[];
   featured?: boolean;
 };
 
-const defaultWorks = (username: string): UserWork[] => [
-  { id: 1, title: `${username} Work 1`, category: 'Иллюстрация', featured: true },
-  { id: 2, title: `${username} Work 2`, category: 'Иллюстрация', featured: true },
-  { id: 3, title: `${username} Work 3`, category: 'UI/UX', featured: true },
-  { id: 4, title: `${username} Work 4`, category: 'Дизайн сайтов', featured: true },
-  { id: 5, title: `${username} Work 5`, category: 'Иллюстрация' },
-  { id: 6, title: `${username} Work 6`, category: 'Иллюстрация' },
-  { id: 7, title: `${username} Work 7`, category: 'Fan art' },
-  { id: 8, title: `${username} Work 8`, category: 'Дизайн сайтов' },
-];
+export type HomeFeedResponse = {
+  categories: string[];
+  popular: WorkSummary[];
+  recommendations: WorkSummary[];
+};
 
-const mapWork = (work: {
-  externalId: number;
+type WorkWithAuthor = {
+  id: number;
   title: string;
   category: string;
+  description: string;
+  imageUrl: string;
+  imageKey: string | null;
+  imageWidth: number;
+  imageHeight: number;
+  tags: string;
   featured: boolean;
-}): UserWork => ({
-  id: work.externalId,
+  createdAt: Date;
+  author: {
+    username: string;
+    profile: {
+      nickname: string;
+    } | null;
+  };
+};
+
+const seedWorks: CreateWorkInput[] = [
+  {
+    title: 'Editorial Identity System',
+    category: 'Графический дизайн',
+    description: 'Система визуальной идентичности для независимого медиа: сетка, постеры, обложки и цифровые носители.',
+    imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 1200,
+    tags: ['identity', 'poster', 'editorial'],
+    featured: true,
+  },
+  {
+    title: 'Atrium Light Study',
+    category: 'Архитектура',
+    description: 'Исследование света и материалов в общественном интерьере с мягкой навигацией и открытыми уровнями.',
+    imageUrl: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 800,
+    tags: ['architecture', 'interior', 'light'],
+    featured: true,
+  },
+  {
+    title: 'Product Launch Screens',
+    category: 'UI/UX',
+    description: 'Набор экранов для запуска продукта: карточки функций, onboarding, pricing и мобильная адаптация.',
+    imageUrl: 'https://images.unsplash.com/photo-1551650975-87deedd944c3?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 900,
+    tags: ['ui', 'product', 'mobile'],
+    featured: true,
+  },
+  {
+    title: 'Character Concept Pack',
+    category: 'Game art',
+    description: 'Серия концептов персонажей с вариациями силуэта, материалов и цветовых акцентов.',
+    imageUrl: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 1600,
+    tags: ['gameart', 'character', 'concept'],
+    featured: true,
+  },
+  {
+    title: 'Studio Portrait Series',
+    category: 'Фотография',
+    description: 'Портретная серия с акцентом на естественную пластику, мягкий контраст и чистый фон.',
+    imageUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1000,
+    imageHeight: 1500,
+    tags: ['portrait', 'photo', 'studio'],
+  },
+  {
+    title: 'Motion Poster Frames',
+    category: '3D art',
+    description: 'Кадры для анимированного постера с объемной типографикой, стеклом и направленным светом.',
+    imageUrl: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 1500,
+    tags: ['3d', 'motion', 'typography'],
+  },
+  {
+    title: 'Commerce Design Kit',
+    category: 'Дизайн продуктов',
+    description: 'Компоненты для e-commerce интерфейса: карточки товара, фильтры, checkout и состояние пустой корзины.',
+    imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 760,
+    tags: ['product', 'commerce', 'design-system'],
+  },
+  {
+    title: 'Portfolio Website Grid',
+    category: 'Дизайн сайтов',
+    description: 'Сетка портфолио с крупными превью, быстрым просмотром и акцентом на авторские серии.',
+    imageUrl: 'https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 1200,
+    imageHeight: 820,
+    tags: ['web', 'portfolio', 'layout'],
+  },
+  {
+    title: 'Fan Poster Collection',
+    category: 'Fan art',
+    description: 'Коллекция фанатских постеров с декоративной типографикой и плотной работой с цветом.',
+    imageUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?auto=format&fit=crop&w=1200&q=80',
+    imageKey: null,
+    imageWidth: 900,
+    imageHeight: 1400,
+    tags: ['fanart', 'poster', 'color'],
+  },
+  {
+    title: 'Minimal Brand Cards',
+    category: 'Графический дизайн',
+    description: 'Серия бренд-карточек с лаконичной типографикой, контрастными парами и печатными фактурами.',
+    imageUrl: 'https://images.unsplash.com/photo-1558655146-364adaf1fcc9?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 1500,
+    tags: ['brand', 'print', 'cards'],
+  },
+  {
+    title: 'Quiet Workspace',
+    category: 'Фотография',
+    description: 'Фотосерия рабочего пространства с мягким дневным светом и спокойной композицией.',
+    imageUrl: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 720,
+    tags: ['photo', 'workspace', 'light'],
+  },
+  {
+    title: 'Mobile Finance Flow',
+    category: 'UI/UX',
+    description: 'Мобильный сценарий финансового приложения: аналитика, платежи, лимиты и быстрые действия.',
+    imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 900,
+    imageHeight: 1400,
+    tags: ['mobile', 'finance', 'dashboard'],
+  },
+  {
+    title: 'Facade Rhythm',
+    category: 'Архитектура',
+    description: 'Визуальное исследование фасадного ритма, повторяющихся модулей и вертикального масштаба.',
+    imageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 900,
+    imageHeight: 1350,
+    tags: ['facade', 'urban', 'geometry'],
+  },
+  {
+    title: 'Sci-Fi Prop Sheet',
+    category: 'Game art',
+    description: 'Лист игровых пропсов с вариантами материалов, форм и цветовой маркировки.',
+    imageUrl: 'https://images.unsplash.com/photo-1535223289827-42f1e9919769?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 950,
+    tags: ['props', 'sci-fi', 'game'],
+  },
+  {
+    title: 'Glass Object Study',
+    category: '3D art',
+    description: 'Тест прозрачных материалов, отражений и мягких теней на простой предметной сцене.',
+    imageUrl: 'https://images.unsplash.com/photo-1604076913837-52ab5629fba9?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1000,
+    imageHeight: 1250,
+    tags: ['3d', 'glass', 'render'],
+  },
+  {
+    title: 'Landing Page System',
+    category: 'Дизайн сайтов',
+    description: 'Комплект секций для продуктовой страницы: навигация, карточки, тарифы и блок доверия.',
+    imageUrl: 'https://images.unsplash.com/photo-1547658719-da2b51169166?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 900,
+    tags: ['web', 'landing', 'sections'],
+  },
+  {
+    title: 'Packaging Variants',
+    category: 'Дизайн продуктов',
+    description: 'Варианты упаковки с цветовой системой, маркировкой линейки и печатными деталями.',
+    imageUrl: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 900,
+    imageHeight: 1200,
+    tags: ['packaging', 'product', 'color'],
+  },
+  {
+    title: 'Album Fan Cover',
+    category: 'Fan art',
+    description: 'Фанатская обложка альбома с крупным образом, плотным цветом и декоративной сеткой.',
+    imageUrl: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 1200,
+    tags: ['music', 'cover', 'fanart'],
+  },
+  {
+    title: 'Editorial Photo Diptych',
+    category: 'Фотография',
+    description: 'Редакционный диптих с контрастом крупного плана и общей сцены.',
+    imageUrl: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 1600,
+    tags: ['editorial', 'photo', 'diptych'],
+  },
+  {
+    title: 'Control Panel UI',
+    category: 'UI/UX',
+    description: 'Плотный интерфейс панели управления с таблицами, быстрыми фильтрами и статусами.',
+    imageUrl: 'https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=1200&q=80',
+    imageWidth: 1200,
+    imageHeight: 780,
+    tags: ['dashboard', 'control', 'saas'],
+  },
+];
+
+const parseTags = (value: string) => {
+  try {
+    const tags = JSON.parse(value) as unknown;
+    return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const formatPublishedAt = (date: Date) => {
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+};
+
+const mapWorkSummary = (work: WorkWithAuthor): WorkSummary => ({
+  id: work.id,
   title: work.title,
   category: work.category,
+  author: work.author.profile?.nickname || work.author.username,
+  authorUsername: work.author.username,
+  imageUrl: work.imageUrl,
+  imageKey: work.imageKey,
+  imageWidth: work.imageWidth,
+  imageHeight: work.imageHeight,
+  description: work.description,
+  tags: parseTags(work.tags),
   featured: work.featured,
+  createdAt: work.createdAt.toISOString(),
 });
 
-export const listUserWorks = async (userId: string, username: string): Promise<UserWork[]> => {
-  await ensureDatabaseSchema();
-  const existing = await prisma.work.findMany({
-    where: { userId },
-    orderBy: { externalId: 'asc' },
+const mapWorkDetail = (work: WorkWithAuthor): WorkDetail => ({
+  ...mapWorkSummary(work),
+  description: work.description,
+  views: 700 + work.id * 31,
+  likes: 90 + work.id * 7,
+  comments: [
+    {
+      id: work.id * 10 + 1,
+      author: 'curator_note',
+      text: 'Сильная подача и аккуратная работа с деталями.',
+      postedAt: '2 ч назад',
+    },
+    {
+      id: work.id * 10 + 2,
+      author: 'artside_viewer',
+      text: 'Хорошо читается идея и визуальный ритм.',
+      postedAt: 'вчера',
+    },
+  ],
+  tags: parseTags(work.tags),
+  publishedAt: formatPublishedAt(work.createdAt),
+});
+
+const includeAuthor = {
+  author: {
     select: {
-      externalId: true,
-      title: true,
-      category: true,
-      featured: true,
+      username: true,
+      profile: {
+        select: {
+          nickname: true,
+        },
+      },
+    },
+  },
+};
+
+const ensureSeedWorks = async () => {
+  const author = await prisma.user.upsert({
+    where: { username: 'artside_curator' },
+    update: {},
+    create: {
+      id: 'seed-artside-curator',
+      username: 'artside_curator',
+      email: 'curator@artside.local',
+      passwordHash: '$2a$10$uXcfb3w58JrTuA4y9.PJdOD1p6NHHgG2hrVbp7X8Be4OZ26LvfFM.',
+      profile: {
+        create: {
+          nickname: 'Artside Curator',
+          location: 'Москва',
+          bio: 'Редакционный аккаунт с первыми работами для ленты.',
+          avatarUrl: '',
+        },
+      },
     },
   });
 
-  if (existing.length > 0) {
-    return existing.map(mapWork);
-  }
+  for (const work of seedWorks) {
+    const existing = await prisma.work.findFirst({
+      where: {
+        authorId: author.id,
+        title: work.title,
+      },
+      select: { id: true },
+    });
 
-  const seeded = defaultWorks(username);
-  await prisma.work.createMany({
-    data: seeded.map((item) => ({
-      userId,
-      externalId: item.id,
-      title: item.title,
-      category: item.category,
-      featured: Boolean(item.featured),
-    })),
+    const data = {
+      category: work.category,
+      description: work.description,
+      imageUrl: work.imageUrl,
+      imageKey: work.imageKey ?? null,
+      imageWidth: work.imageWidth,
+      imageHeight: work.imageHeight,
+      tags: JSON.stringify(work.tags),
+      featured: Boolean(work.featured),
+    };
+
+    if (existing) {
+      await prisma.work.update({
+        where: { id: existing.id },
+        data,
+      });
+      continue;
+    }
+
+    await prisma.work.create({
+      data: {
+        authorId: author.id,
+        title: work.title,
+        ...data,
+      },
+    });
+  }
+};
+
+export const listHomeFeed = async (): Promise<HomeFeedResponse> => {
+  await ensureDatabaseSchema();
+  await ensureSeedWorks();
+
+  const works = await prisma.work.findMany({
+    orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+    include: includeAuthor,
   });
 
-  return seeded;
+  const summaries = works.map(mapWorkSummary);
+  const categories = Array.from(new Set(summaries.map((work) => work.category))).sort((a, b) => a.localeCompare(b, 'ru'));
+
+  return {
+    categories,
+    popular: summaries.slice(0, 12),
+    recommendations: summaries.slice(0, 60),
+  };
+};
+
+export const getWorkById = async (id: number): Promise<WorkDetail | null> => {
+  await ensureDatabaseSchema();
+  await ensureSeedWorks();
+
+  const work = await prisma.work.findUnique({
+    where: { id },
+    include: includeAuthor,
+  });
+
+  return work ? mapWorkDetail(work) : null;
+};
+
+export const listUserWorks = async (authorId: string): Promise<WorkSummary[]> => {
+  await ensureDatabaseSchema();
+  await ensureSeedWorks();
+
+  const works = await prisma.work.findMany({
+    where: { authorId },
+    orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+    include: includeAuthor,
+  });
+
+  return works.map(mapWorkSummary);
+};
+
+export const createWork = async (authorId: string, input: CreateWorkInput): Promise<WorkDetail> => {
+  await ensureDatabaseSchema();
+
+  const work = await prisma.work.create({
+    data: {
+      authorId,
+      title: input.title,
+      category: input.category,
+      description: input.description,
+      imageUrl: input.imageUrl,
+      imageKey: input.imageKey ?? null,
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      tags: JSON.stringify(input.tags),
+      featured: Boolean(input.featured),
+    },
+    include: includeAuthor,
+  });
+
+  return mapWorkDetail(work);
+};
+
+export type UpdateWorkInput = {
+  title: string;
+  category: string;
+  description: string;
+  tags: string[];
+  image?: {
+    imageUrl: string;
+    imageKey: string | null;
+    imageWidth: number;
+    imageHeight: number;
+  };
+};
+
+export const getWorkOwnerInfo = async (id: number) => {
+  await ensureDatabaseSchema();
+  return prisma.work.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      authorId: true,
+      imageKey: true,
+    },
+  });
+};
+
+export const updateWork = async (id: number, input: UpdateWorkInput): Promise<WorkDetail | null> => {
+  await ensureDatabaseSchema();
+
+  const work = await prisma.work.update({
+    where: { id },
+    data: {
+      title: input.title,
+      category: input.category,
+      description: input.description,
+      tags: JSON.stringify(input.tags),
+      ...(input.image
+        ? {
+            imageUrl: input.image.imageUrl,
+            imageKey: input.image.imageKey,
+            imageWidth: input.image.imageWidth,
+            imageHeight: input.image.imageHeight,
+          }
+        : {}),
+    },
+    include: includeAuthor,
+  });
+
+  return mapWorkDetail(work);
+};
+
+export const deleteWork = async (id: number) => {
+  await ensureDatabaseSchema();
+  await prisma.work.delete({ where: { id } });
 };

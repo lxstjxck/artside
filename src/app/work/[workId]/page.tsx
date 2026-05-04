@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import WorkViewContent from '@/app/components/work/WorkViewContent';
-import { getWorkBySlug } from '@/lib/work-catalog';
+import { getWorkById } from '@/lib/work-catalog';
 
 type WorkPageProps = {
   params: Promise<{
@@ -10,7 +10,8 @@ type WorkPageProps = {
 
 export default async function WorkPage({ params }: WorkPageProps) {
   const { workId } = await params;
-  const work = getWorkBySlug(workId);
+  const id = Number(workId);
+  const work = Number.isInteger(id) ? await getWorkById(id) : null;
 
   if (!work) {
     notFound();
@@ -18,7 +19,7 @@ export default async function WorkPage({ params }: WorkPageProps) {
 
   return (
     <main className="section-dark px-6 py-6 md:px-10">
-      <WorkViewContent work={work} />
+      <WorkViewContent work={work} closeHref={`/profile/${work.authorUsername}`} />
     </main>
   );
 }

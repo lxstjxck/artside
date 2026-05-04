@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: RouteProps) {
 
   const sessionUser = await getSessionUser();
   const isOwner = sessionUser?.id === profileUser.id;
-  const works = await listUserWorks(profileUser.id, profileUser.username);
+  const works = await listUserWorks(profileUser.id);
 
   return NextResponse.json({
     user: mapStoredUserToPublic(profileUser),
