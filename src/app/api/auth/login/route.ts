@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { NextResponse } from 'next/server';
 import { createSessionToken, setSessionCookie } from '@/lib/auth-session';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit';
 import { findUserByEmail, mapStoredUserToPublic } from '@/lib/user-store';
 
 type LoginBody = {
@@ -9,6 +10,16 @@ type LoginBody = {
 };
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const limit = checkRateLimit({
+    key: `login:${ip}`,
+    limit: 10,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (limit.limited) {
+    return rateLimitResponse(limit.retryAfter);
+  }
+
   let body: LoginBody;
 
   try {

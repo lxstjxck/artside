@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { NextResponse } from 'next/server';
 import { createSessionToken, setSessionCookie } from '@/lib/auth-session';
 import { isPasswordValid, isUsernameValid } from '@/lib/auth-validation';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit';
 import { createUser } from '@/lib/user-store';
 
 type RegisterBody = {
@@ -13,6 +14,16 @@ type RegisterBody = {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const limit = checkRateLimit({
+    key: `register:${ip}`,
+    limit: 5,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (limit.limited) {
+    return rateLimitResponse(limit.retryAfter);
+  }
+
   let body: RegisterBody;
 
   try {

@@ -9,6 +9,10 @@ export type UserProfile = {
   location: string;
   bio: string;
   avatarUrl: string;
+  avatarKey?: string | null;
+  notifyLikes: boolean;
+  notifyComments: boolean;
+  emailNotifications: boolean;
 };
 
 export type StoredUser = AuthUser & {

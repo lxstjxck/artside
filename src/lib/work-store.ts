@@ -13,6 +13,12 @@ export type WorkSummary = {
   imageHeight: number;
   description: string;
   tags: string[];
+  views: number;
+  likes: number;
+  saves: number;
+  commentsCount: number;
+  likedByMe?: boolean;
+  savedByMe?: boolean;
   featured: boolean;
   createdAt: string;
 };
@@ -20,6 +26,7 @@ export type WorkSummary = {
 export type WorkComment = {
   id: number;
   author: string;
+  authorUsername: string;
   text: string;
   postedAt: string;
 };
@@ -28,6 +35,9 @@ export type WorkDetail = WorkSummary & {
   description: string;
   views: number;
   likes: number;
+  saves: number;
+  likedByMe: boolean;
+  savedByMe: boolean;
   comments: WorkComment[];
   tags: string[];
   publishedAt: string;
@@ -53,6 +63,7 @@ export type HomeFeedResponse = {
 
 type WorkWithAuthor = {
   id: number;
+  authorId: string;
   title: string;
   category: string;
   description: string;
@@ -63,12 +74,36 @@ type WorkWithAuthor = {
   tags: string;
   featured: boolean;
   createdAt: Date;
+  _count: {
+    views: number;
+    likes: number;
+    savedBy: number;
+    comments: number;
+  };
+  likes?: Array<{ userId: string }>;
+  savedBy?: Array<{ userId: string }>;
   author: {
     username: string;
     profile: {
       nickname: string;
     } | null;
   };
+};
+
+type WorkCommentWithUser = {
+  id: number;
+  text: string;
+  createdAt: Date;
+  user: {
+    username: string;
+    profile: {
+      nickname: string;
+    } | null;
+  };
+};
+
+type WorkDetailRecord = WorkWithAuthor & {
+  comments: WorkCommentWithUser[];
 };
 
 const seedWorks: CreateWorkInput[] = [
@@ -280,7 +315,7 @@ const formatPublishedAt = (date: Date) => {
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 };
 
-const mapWorkSummary = (work: WorkWithAuthor): WorkSummary => ({
+const mapWorkSummary = (work: WorkWithAuthor, viewerId?: string | null): WorkSummary => ({
   id: work.id,
   title: work.title,
   category: work.category,
@@ -292,34 +327,38 @@ const mapWorkSummary = (work: WorkWithAuthor): WorkSummary => ({
   imageHeight: work.imageHeight,
   description: work.description,
   tags: parseTags(work.tags),
+  views: work._count.views,
+  likes: work._count.likes,
+  saves: work._count.savedBy,
+  commentsCount: work._count.comments,
+  likedByMe: viewerId ? Boolean(work.likes?.some((item) => item.userId === viewerId)) : false,
+  savedByMe: viewerId ? Boolean(work.savedBy?.some((item) => item.userId === viewerId)) : false,
   featured: work.featured,
   createdAt: work.createdAt.toISOString(),
 });
 
-const mapWorkDetail = (work: WorkWithAuthor): WorkDetail => ({
-  ...mapWorkSummary(work),
+const mapComment = (comment: WorkCommentWithUser): WorkComment => ({
+  id: comment.id,
+  author: comment.user.profile?.nickname || comment.user.username,
+  authorUsername: comment.user.username,
+  text: comment.text,
+  postedAt: formatPublishedAt(comment.createdAt),
+});
+
+const mapWorkDetail = (work: WorkDetailRecord, viewerId?: string | null): WorkDetail => ({
+  ...mapWorkSummary(work, viewerId),
   description: work.description,
-  views: 700 + work.id * 31,
-  likes: 90 + work.id * 7,
-  comments: [
-    {
-      id: work.id * 10 + 1,
-      author: 'curator_note',
-      text: 'Сильная подача и аккуратная работа с деталями.',
-      postedAt: '2 ч назад',
-    },
-    {
-      id: work.id * 10 + 2,
-      author: 'artside_viewer',
-      text: 'Хорошо читается идея и визуальный ритм.',
-      postedAt: 'вчера',
-    },
-  ],
+  views: work._count.views,
+  likes: work._count.likes,
+  saves: work._count.savedBy,
+  likedByMe: viewerId ? Boolean(work.likes?.some((item) => item.userId === viewerId)) : false,
+  savedByMe: viewerId ? Boolean(work.savedBy?.some((item) => item.userId === viewerId)) : false,
+  comments: work.comments.map(mapComment),
   tags: parseTags(work.tags),
   publishedAt: formatPublishedAt(work.createdAt),
 });
 
-const includeAuthor = {
+const includeForViewer = (viewerId?: string | null) => ({
   author: {
     select: {
       username: true,
@@ -330,20 +369,60 @@ const includeAuthor = {
       },
     },
   },
+  _count: {
+    select: {
+      views: true,
+      likes: true,
+      savedBy: true,
+      comments: true,
+    },
+  },
+  likes: viewerId ? { where: { userId: viewerId }, select: { userId: true } } : false,
+  savedBy: viewerId ? { where: { userId: viewerId }, select: { userId: true } } : false,
+});
+
+const includeDetailForViewer = (viewerId?: string | null) => ({
+  ...includeForViewer(viewerId),
+  comments: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 30,
+    include: {
+      user: {
+        select: {
+          username: true,
+          profile: {
+            select: { nickname: true },
+          },
+        },
+      },
+    },
+  },
+});
+
+const getRecencyScore = (createdAt: Date) => {
+  const ageHours = Math.max(1, (Date.now() - createdAt.getTime()) / 36e5);
+  return 1 / Math.sqrt(ageHours);
+};
+
+const getPopularScore = (work: WorkWithAuthor) => {
+  return work._count.views * 0.25
+    + work._count.likes * 2
+    + work._count.savedBy * 3
+    + getRecencyScore(work.createdAt) * 12;
 };
 
 const ensureSeedWorks = async () => {
   const author = await prisma.user.upsert({
-    where: { username: 'artside_curator' },
+    where: { username: 'Название_curator' },
     update: {},
     create: {
-      id: 'seed-artside-curator',
-      username: 'artside_curator',
-      email: 'curator@artside.local',
+      id: 'seed-Название-curator',
+      username: 'Название_curator',
+      email: 'curator@Название.local',
       passwordHash: '$2a$10$uXcfb3w58JrTuA4y9.PJdOD1p6NHHgG2hrVbp7X8Be4OZ26LvfFM.',
       profile: {
         create: {
-          nickname: 'Artside Curator',
+          nickname: 'Название Curator',
           location: 'Москва',
           bio: 'Редакционный аккаунт с первыми работами для ленты.',
           avatarUrl: '',
@@ -390,48 +469,94 @@ const ensureSeedWorks = async () => {
   }
 };
 
-export const listHomeFeed = async (): Promise<HomeFeedResponse> => {
+export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedResponse> => {
   await ensureDatabaseSchema();
   await ensureSeedWorks();
 
   const works = await prisma.work.findMany({
-    orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
-    include: includeAuthor,
+    orderBy: [{ createdAt: 'desc' }],
+    include: includeForViewer(viewerId),
   });
 
-  const summaries = works.map(mapWorkSummary);
+  const summaries = works.map((work) => mapWorkSummary(work, viewerId));
   const categories = Array.from(new Set(summaries.map((work) => work.category))).sort((a, b) => a.localeCompare(b, 'ru'));
+  const popular = [...works]
+    .sort((a, b) => getPopularScore(b) - getPopularScore(a))
+    .map((work) => mapWorkSummary(work, viewerId));
+
+  let recommendations = summaries;
+  if (viewerId) {
+    const interactions = await prisma.work.findMany({
+      where: {
+        OR: [
+          { savedBy: { some: { userId: viewerId } } },
+          { likes: { some: { userId: viewerId } } },
+          { views: { some: { userId: viewerId } } },
+        ],
+      },
+      select: {
+        category: true,
+        tags: true,
+        authorId: true,
+      },
+    });
+
+    const categoryWeights = new Map<string, number>();
+    const tagWeights = new Map<string, number>();
+    const authorWeights = new Map<string, number>();
+
+    for (const item of interactions) {
+      categoryWeights.set(item.category, (categoryWeights.get(item.category) ?? 0) + 3);
+      authorWeights.set(item.authorId, (authorWeights.get(item.authorId) ?? 0) + 1);
+      for (const tag of parseTags(item.tags)) {
+        tagWeights.set(tag, (tagWeights.get(tag) ?? 0) + 1);
+      }
+    }
+
+    recommendations = [...works]
+      .sort((a, b) => {
+        const score = (work: WorkWithAuthor) => {
+          const tags = parseTags(work.tags);
+          return (categoryWeights.get(work.category) ?? 0) * 4
+            + tags.reduce((sum, tag) => sum + (tagWeights.get(tag) ?? 0), 0) * 2
+            + (authorWeights.get(work.authorId) ?? 0)
+            + getPopularScore(work) * 0.15;
+        };
+        return score(b) - score(a);
+      })
+      .map((work) => mapWorkSummary(work, viewerId));
+  }
 
   return {
     categories,
-    popular: summaries.slice(0, 12),
-    recommendations: summaries.slice(0, 60),
+    popular: popular.slice(0, 12),
+    recommendations: recommendations.slice(0, 60),
   };
 };
 
-export const getWorkById = async (id: number): Promise<WorkDetail | null> => {
+export const getWorkById = async (id: number, viewerId?: string | null): Promise<WorkDetail | null> => {
   await ensureDatabaseSchema();
   await ensureSeedWorks();
 
   const work = await prisma.work.findUnique({
     where: { id },
-    include: includeAuthor,
+    include: includeDetailForViewer(viewerId),
   });
 
-  return work ? mapWorkDetail(work) : null;
+  return work ? mapWorkDetail(work, viewerId) : null;
 };
 
-export const listUserWorks = async (authorId: string): Promise<WorkSummary[]> => {
+export const listUserWorks = async (authorId: string, viewerId?: string | null): Promise<WorkSummary[]> => {
   await ensureDatabaseSchema();
   await ensureSeedWorks();
 
   const works = await prisma.work.findMany({
     where: { authorId },
     orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
-    include: includeAuthor,
+    include: includeForViewer(viewerId),
   });
 
-  return works.map(mapWorkSummary);
+  return works.map((work) => mapWorkSummary(work, viewerId));
 };
 
 export const createWork = async (authorId: string, input: CreateWorkInput): Promise<WorkDetail> => {
@@ -450,10 +575,10 @@ export const createWork = async (authorId: string, input: CreateWorkInput): Prom
       tags: JSON.stringify(input.tags),
       featured: Boolean(input.featured),
     },
-    include: includeAuthor,
+    include: includeDetailForViewer(authorId),
   });
 
-  return mapWorkDetail(work);
+  return mapWorkDetail(work, authorId);
 };
 
 export type UpdateWorkInput = {
@@ -500,7 +625,7 @@ export const updateWork = async (id: number, input: UpdateWorkInput): Promise<Wo
           }
         : {}),
     },
-    include: includeAuthor,
+    include: includeDetailForViewer(),
   });
 
   return mapWorkDetail(work);

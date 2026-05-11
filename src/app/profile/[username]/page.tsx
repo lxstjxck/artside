@@ -2,6 +2,8 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import { useSearchParams } from 'next/navigation';
+import AccountSettingsModal from '@/app/components/AccountSettingsModal';
 import type { SavedWorkItem } from '@/lib/saved-work-types';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
 import type { WorkSummary } from '@/lib/work-store';
@@ -29,6 +31,7 @@ const emptyWorkForm = {
 
 export default function ProfilePage({ params }: ProfilePageProps) {
   const { username } = use(params);
+  const searchParams = useSearchParams();
 
   const [profileUser, setProfileUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -42,6 +45,8 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isSavedLoading, setIsSavedLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
@@ -149,6 +154,18 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     return () => URL.revokeObjectURL(url);
   }, [workImage]);
 
+  useEffect(() => {
+    if (isOwner && searchParams.get('publish') === '1') {
+      setWorkForm(emptyWorkForm);
+      setWorkImage(null);
+      setWorkImagePreview(null);
+      setEditingWork(null);
+      setPublishMessage(null);
+      setIsPublishModalOpen(true);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [isOwner, searchParams]);
+
   const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
   const publishedWorks = works.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
@@ -213,12 +230,18 @@ export default function ProfilePage({ params }: ProfilePageProps) {
       setIsSavingProfile(true);
       setProfileMessage(null);
 
+      const formData = new FormData();
+      formData.set('nickname', profile.nickname);
+      formData.set('location', profile.location);
+      formData.set('bio', profile.bio);
+      formData.set('avatarUrl', profile.avatarUrl);
+      if (avatarFile) {
+        formData.set('avatar', avatarFile);
+      }
+
       const response = await fetch('/api/profile', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(profile),
+        body: formData,
       });
 
       const data = (await response.json()) as { message?: string; profile?: UserProfile };
@@ -229,6 +252,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
       }
 
       setProfile(data.profile);
+      setAvatarFile(null);
       setProfileMessage('Профиль сохранен.');
       setIsEditing(false);
     } catch {
@@ -236,6 +260,10 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     } finally {
       setIsSavingProfile(false);
     }
+  };
+
+  const openSettings = () => {
+    setIsSettingsOpen(true);
   };
 
   const submitWork = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -302,6 +330,23 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     setProfileMessage('Работа удалена.');
   };
 
+  const toggleFeaturedWork = async (work: WorkSummary) => {
+    const response = await fetch(`/api/works/${work.id}/featured`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ featured: !work.featured }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { message?: string; work?: { id: number; featured: boolean } };
+    if (!response.ok || !data.work) {
+      setProfileMessage(data.message ?? 'Не удалось обновить закрепление.');
+      return;
+    }
+
+    setWorks((current) => current.map((item) => (
+      item.id === work.id ? { ...item, featured: data.work!.featured } : item
+    )));
+  };
+
   if (isPageLoading) {
     return (
       <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-8 lg:px-8">
@@ -321,8 +366,23 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   return (
     <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-4 lg:px-8 lg:py-5">
       <div className="mx-auto grid w-full max-w-[1840px] grid-cols-1 gap-6 xl:grid-cols-[408px_minmax(0,1fr)]">
-        <aside className="rounded-[28px] bg-[linear-gradient(90deg,#ba7ea3_0%,#b694ba_35%,#8ea9d4_75%,#84b6dc_100%)] p-5 text-[#111111] shadow-soft">
+        <aside className="relative rounded-[28px] bg-[linear-gradient(90deg,#ba7ea3_0%,#b694ba_35%,#8ea9d4_75%,#84b6dc_100%)] p-5 text-[#111111] shadow-soft">
           <div className="flex flex-col items-center">
+            {isOwner && (
+              <button
+                type="button"
+                onClick={openSettings}
+                className="profile-settings-gear"
+                aria-label="Настройки аккаунта"
+                title="Настройки аккаунта"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.04.04a2 2 0 0 1-2.83 2.83l-.04-.04A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .93l-.02.05a2 2 0 0 1-3.78 0l-.02-.05a1.7 1.7 0 0 0-1-.93 1.7 1.7 0 0 0-1.88.34l-.04.04a2 2 0 0 1-2.83-2.83l.04-.04A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-.93-1l-.05-.02a2 2 0 0 1 0-3.78l.05-.02a1.7 1.7 0 0 0 .93-1 1.7 1.7 0 0 0-.34-1.88l-.04-.04a2 2 0 0 1 2.83-2.83l.04.04A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-.93l.02-.05a2 2 0 0 1 3.78 0l.02.05a1.7 1.7 0 0 0 1 .93 1.7 1.7 0 0 0 1.88-.34l.04-.04a2 2 0 0 1 2.83 2.83l-.04.04A1.7 1.7 0 0 0 19.37 9c.08.38.43.72.93 1l.05.02a2 2 0 0 1 0 3.78l-.05.02a1.7 1.7 0 0 0-.9 1.18Z" />
+                </svg>
+              </button>
+            )}
+
             <div className="mb-5 flex h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-[#111111]">
               {profile.avatarUrl ? (
                 <Image src={profile.avatarUrl} alt="Аватар профиля" width={160} height={160} unoptimized className="h-full w-full object-cover" />
@@ -400,14 +460,23 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             )}
 
             {isEditing && isOwner && (
-              <input
-                type="text"
-                value={profile.avatarUrl}
-                onChange={(event) => updateProfileField('avatarUrl', event.target.value)}
-                placeholder="Ссылка на аватар"
-                className="mb-5 w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none placeholder:text-black/45"
-                disabled={isSavingProfile}
-              />
+              <div className="mb-5 grid w-full gap-2">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)}
+                  className="w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none"
+                  disabled={isSavingProfile}
+                />
+                <input
+                  type="text"
+                  value={profile.avatarUrl}
+                  onChange={(event) => updateProfileField('avatarUrl', event.target.value)}
+                  placeholder="Ссылка на аватар"
+                  className="w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none placeholder:text-black/45"
+                  disabled={isSavingProfile || Boolean(avatarFile)}
+                />
+              </div>
             )}
 
             <div className="w-full rounded-[22px] bg-white/42 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_14px_34px_rgba(0,0,0,0.12)] backdrop-blur-sm">
@@ -435,6 +504,9 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 </a>
                 {isOwner && (
                   <div className="profile-work-actions">
+                    <button type="button" onClick={() => void toggleFeaturedWork(work)}>
+                      {work.featured ? 'Открепить' : 'Закрепить'}
+                    </button>
                     <button type="button" onClick={() => openEditWorkModal(work)}>Редактировать</button>
                     <button type="button" onClick={() => void deleteOwnWork(work)}>Удалить</button>
                   </div>
@@ -446,7 +518,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
           {isOwner && (
             <div className="space-y-4">
               <span className="inline-flex rounded-lg bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black">
-                Сохраненки
+                Сохраненные работы
               </span>
 
               {isSavedLoading && <p className="text-sm text-white/65">Загрузка сохраненных работ...</p>}
@@ -490,6 +562,9 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                     </a>
                     {isOwner && (
                       <div className="profile-work-actions">
+                        <button type="button" onClick={() => void toggleFeaturedWork(work)}>
+                          {work.featured ? 'Открепить' : 'Закрепить'}
+                        </button>
                         <button type="button" onClick={() => openEditWorkModal(work)}>Редактировать</button>
                         <button type="button" onClick={() => void deleteOwnWork(work)}>Удалить</button>
                       </div>
@@ -542,6 +617,15 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             </button>
           </form>
         </div>
+      )}
+
+      {isSettingsOpen && profileUser && (
+        <AccountSettingsModal
+          isOpen={isSettingsOpen}
+          user={profileUser}
+          onClose={() => setIsSettingsOpen(false)}
+          onUserUpdate={setProfileUser}
+        />
       )}
     </main>
   );

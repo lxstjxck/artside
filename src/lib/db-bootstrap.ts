@@ -29,6 +29,10 @@ export const ensureDatabaseSchema = async () => {
           "location" TEXT NOT NULL,
           "bio" TEXT NOT NULL,
           "avatarUrl" TEXT NOT NULL,
+          "avatarKey" TEXT,
+          "notifyLikes" BOOLEAN NOT NULL DEFAULT true,
+          "notifyComments" BOOLEAN NOT NULL DEFAULT true,
+          "emailNotifications" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" DATETIME NOT NULL,
           FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -70,7 +74,58 @@ export const ensureDatabaseSchema = async () => {
           "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           "userId" TEXT NOT NULL,
           "text" TEXT NOT NULL,
+          "type" TEXT NOT NULL DEFAULT 'system',
+          "href" TEXT,
+          "actorId" TEXT,
+          "workId" INTEGER,
           "unread" BOOLEAN NOT NULL DEFAULT true,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "WorkLike" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "userId" TEXT NOT NULL,
+          "workId" INTEGER NOT NULL,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "WorkComment" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "userId" TEXT NOT NULL,
+          "workId" INTEGER NOT NULL,
+          "text" TEXT NOT NULL,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "WorkView" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "userId" TEXT,
+          "workId" INTEGER NOT NULL,
+          "viewerKey" TEXT,
+          "viewedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "userId" TEXT NOT NULL,
+          "tokenHash" TEXT NOT NULL,
+          "expiresAt" DATETIME NOT NULL,
+          "usedAt" DATETIME,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
@@ -80,6 +135,37 @@ export const ensureDatabaseSchema = async () => {
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "Profile_userId_key" ON "Profile"("userId");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "SavedWork_userId_workId_key" ON "SavedWork"("userId", "workId");');
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "WorkLike_userId_workId_key" ON "WorkLike"("userId", "workId");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkView_workId_viewedAt_idx" ON "WorkView"("workId", "viewedAt");');
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_expiresAt_idx" ON "PasswordResetToken"("userId", "expiresAt");');
+
+      const profileColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("Profile");');
+      const profileColumnNames = new Set(profileColumns.map((column) => column.name));
+      if (!profileColumnNames.has('notifyLikes')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "notifyLikes" BOOLEAN NOT NULL DEFAULT true;');
+      }
+      if (!profileColumnNames.has('notifyComments')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "notifyComments" BOOLEAN NOT NULL DEFAULT true;');
+      }
+      if (!profileColumnNames.has('emailNotifications')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "emailNotifications" BOOLEAN NOT NULL DEFAULT false;');
+      }
+
+      const notificationColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("Notification");');
+      const notificationColumnNames = new Set(notificationColumns.map((column) => column.name));
+      if (!notificationColumnNames.has('type')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Notification" ADD COLUMN "type" TEXT NOT NULL DEFAULT \'system\';');
+      }
+      if (!notificationColumnNames.has('href')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Notification" ADD COLUMN "href" TEXT;');
+      }
+      if (!notificationColumnNames.has('actorId')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Notification" ADD COLUMN "actorId" TEXT;');
+      }
+      if (!notificationColumnNames.has('workId')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Notification" ADD COLUMN "workId" INTEGER;');
+      }
 
       const usersCount = await prisma.user.count();
       if (usersCount > 0) {
@@ -136,6 +222,10 @@ export const ensureDatabaseSchema = async () => {
           location: user.profile?.location ?? 'Не указано',
           bio: user.profile?.bio ?? 'Расскажите о себе в профиле.',
           avatarUrl: user.profile?.avatarUrl ?? '',
+          avatarKey: user.profile?.avatarKey ?? null,
+          notifyLikes: user.profile?.notifyLikes ?? true,
+          notifyComments: user.profile?.notifyComments ?? true,
+          emailNotifications: user.profile?.emailNotifications ?? false,
         };
 
         await prisma.user.create({

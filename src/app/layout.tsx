@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Artside",
+  title: "Название",
   description: "Платформа для публикации, просмотра и сохранения работ дизайнеров и художников.",
 };
 

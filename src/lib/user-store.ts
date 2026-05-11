@@ -8,6 +8,10 @@ const createDefaultProfile = (username: string): UserProfile => ({
   location: 'Не указано',
   bio: 'Расскажите о себе в профиле.',
   avatarUrl: '',
+  avatarKey: null,
+  notifyLikes: true,
+  notifyComments: true,
+  emailNotifications: false,
 });
 
 const mapPrismaUserToStored = (user: {
@@ -20,6 +24,10 @@ const mapPrismaUserToStored = (user: {
     location: string;
     bio: string;
     avatarUrl: string;
+    avatarKey: string | null;
+    notifyLikes: boolean;
+    notifyComments: boolean;
+    emailNotifications: boolean;
   } | null;
 }): StoredUser => ({
   id: user.id,
@@ -32,6 +40,10 @@ const mapPrismaUserToStored = (user: {
         location: user.profile.location,
         bio: user.profile.bio,
         avatarUrl: user.profile.avatarUrl,
+        avatarKey: user.profile.avatarKey,
+        notifyLikes: user.profile.notifyLikes,
+        notifyComments: user.profile.notifyComments,
+        emailNotifications: user.profile.emailNotifications,
       }
     : createDefaultProfile(user.username),
 });
@@ -125,6 +137,10 @@ export const updateUserProfile = async (userId: string, patch: Partial<UserProfi
         location: existing.profile.location,
         bio: existing.profile.bio,
         avatarUrl: existing.profile.avatarUrl,
+        avatarKey: existing.profile.avatarKey,
+        notifyLikes: existing.profile.notifyLikes,
+        notifyComments: existing.profile.notifyComments,
+        emailNotifications: existing.profile.emailNotifications,
       }
     : createDefaultProfile(existing.username);
 
@@ -144,6 +160,32 @@ export const updateUserProfile = async (userId: string, patch: Partial<UserProfi
             create: nextProfile,
           },
     },
+    include: { profile: true },
+  });
+
+  return mapPrismaUserToStored(updated);
+};
+
+export const updateUserPassword = async (userId: string, passwordHash: string): Promise<void> => {
+  await ensureDatabaseSchema();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+};
+
+export const updateUserEmail = async (userId: string, email: string): Promise<StoredUser> => {
+  await ensureDatabaseSchema();
+  const normalizedEmail = email.toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
+
+  if (existing && existing.id !== userId) {
+    throw new Error('EMAIL_IN_USE');
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { email: normalizedEmail },
     include: { profile: true },
   });
 

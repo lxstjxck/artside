@@ -21,5 +21,6 @@ export async function GET() {
   return NextResponse.json({
     authenticated: true,
     user: mapStoredUserToPublic(user),
+    profile: user.profile,
   });
 }

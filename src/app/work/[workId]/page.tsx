@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import WorkViewContent from '@/app/components/work/WorkViewContent';
 import { getWorkById } from '@/lib/work-catalog';
+import { getSessionUser } from '@/lib/session-user';
 
 type WorkPageProps = {
   params: Promise<{
@@ -11,7 +12,8 @@ type WorkPageProps = {
 export default async function WorkPage({ params }: WorkPageProps) {
   const { workId } = await params;
   const id = Number(workId);
-  const work = Number.isInteger(id) ? await getWorkById(id) : null;
+  const user = await getSessionUser();
+  const work = Number.isInteger(id) ? await getWorkById(id, user?.id) : null;
 
   if (!work) {
     notFound();

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getImageDimensions } from '@/lib/image-metadata';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { getSessionUser } from '@/lib/session-user';
 import { uploadWorkImage } from '@/lib/work-image-storage';
 import { createWork } from '@/lib/work-store';
@@ -21,6 +22,15 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ message: 'Требуется авторизация.' }, { status: 401 });
+  }
+
+  const limit = checkRateLimit({
+    key: `work-upload:${user.id}`,
+    limit: 20,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (limit.limited) {
+    return rateLimitResponse(limit.retryAfter);
   }
 
   let formData: FormData;

@@ -17,10 +17,14 @@ Artside is a Next.js app for publishing, browsing, opening and saving visual wor
 - Category filtering on the home page
 - Work detail pages and modal previews
 - Registration, login, logout and session endpoint
+- Password reset by email
 - User profile with editable profile data
+- Account settings with email and password change
+- Avatar upload from the user profile
 - Work publishing from the owner profile
 - Work editing and deletion by the owner
 - Saved works for authenticated users
+- Likes, comments, views, search and pinned works
 - Notifications API with read state
 
 ## Environment
@@ -30,6 +34,15 @@ Create `.env` from `.env.example`:
 ```env
 DATABASE_URL="file:./dev.db"
 AUTH_SECRET="replace-with-a-long-random-secret"
+APP_URL="http://localhost:3000"
+APP_NAME="ArtSide"
+
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_SECURE="false"
+SMTP_USER=""
+SMTP_PASS=""
+MAIL_FROM="ArtSide <no-reply@example.com>"
 
 # Optional S3/R2-compatible storage for uploaded images.
 S3_BUCKET=""
@@ -41,6 +54,7 @@ S3_PUBLIC_BASE_URL=""
 ```
 
 `AUTH_SECRET` is required in production.
+SMTP variables are required in production for password reset emails.
 When `S3_*` variables are not set, uploads are stored locally in `public/uploads` for development.
 
 ## Local Development
@@ -85,6 +99,11 @@ Auth:
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/session`
+- `POST /api/auth/password-reset/request`
+- `POST /api/auth/password-reset/confirm`
+
+Account:
+- `PATCH /api/account`
 
 Works:
 - `GET /api/home-feed`
