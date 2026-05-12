@@ -63,9 +63,23 @@ export const ensureDatabaseSchema = async () => {
           "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           "userId" TEXT NOT NULL,
           "workId" INTEGER NOT NULL,
+          "folderId" INTEGER,
           "savedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE
+          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY ("folderId") REFERENCES "LibraryFolder"("id") ON DELETE SET NULL ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "LibraryFolder" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "userId" TEXT NOT NULL,
+          "name" TEXT NOT NULL,
+          "sortOrder" INTEGER NOT NULL DEFAULT 0,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL,
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
 
@@ -135,6 +149,8 @@ export const ensureDatabaseSchema = async () => {
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "Profile_userId_key" ON "Profile"("userId");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "SavedWork_userId_workId_key" ON "SavedWork"("userId", "workId");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "SavedWork_folderId_idx" ON "SavedWork"("folderId");');
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "LibraryFolder_userId_name_key" ON "LibraryFolder"("userId", "name");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "WorkLike_userId_workId_key" ON "WorkLike"("userId", "workId");');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkView_workId_viewedAt_idx" ON "WorkView"("workId", "viewedAt");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");');
@@ -150,6 +166,18 @@ export const ensureDatabaseSchema = async () => {
       }
       if (!profileColumnNames.has('emailNotifications')) {
         await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "emailNotifications" BOOLEAN NOT NULL DEFAULT false;');
+      }
+
+      const savedWorkColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("SavedWork");');
+      const savedWorkColumnNames = new Set(savedWorkColumns.map((column) => column.name));
+      if (!savedWorkColumnNames.has('folderId')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "SavedWork" ADD COLUMN "folderId" INTEGER;');
+      }
+
+      const libraryFolderColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("LibraryFolder");');
+      const libraryFolderColumnNames = new Set(libraryFolderColumns.map((column) => column.name));
+      if (!libraryFolderColumnNames.has('sortOrder')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "LibraryFolder" ADD COLUMN "sortOrder" INTEGER NOT NULL DEFAULT 0;');
       }
 
       const notificationColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("Notification");');

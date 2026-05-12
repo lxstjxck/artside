@@ -43,6 +43,7 @@ export default function Header() {
   const profileUsername = currentUser?.username ?? 'Название_user';
   const profileHref = `/profile/${profileUsername}`;
   const profileMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notificationsMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
   const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -68,23 +69,33 @@ export default function Header() {
     }, 120);
   };
 
-  const toggleNotifications = () => {
-    setIsNotificationsOpen((current) => {
-      const next = !current;
-      if (next) {
-        const markNotificationsAsRead = async () => {
-          const response = await fetch('/api/notifications/read-all', { method: 'POST' });
-          if (!response.ok) return;
-          const data = (await response.json()) as { notifications?: HeaderNotification[] };
-          if (Array.isArray(data.notifications)) {
-            setNotifications(data.notifications);
-          }
-        };
+  const markNotificationsAsRead = async () => {
+    const response = await fetch('/api/notifications/read-all', { method: 'POST' });
+    if (!response.ok) return;
+    const data = (await response.json()) as { notifications?: HeaderNotification[] };
+    if (Array.isArray(data.notifications)) {
+      setNotifications(data.notifications);
+    }
+  };
 
+  const openNotificationsMenu = () => {
+    if (notificationsMenuCloseTimer.current) {
+      clearTimeout(notificationsMenuCloseTimer.current);
+      notificationsMenuCloseTimer.current = null;
+    }
+    setIsNotificationsOpen((current) => {
+      if (!current) {
         void markNotificationsAsRead();
       }
-      return next;
+      return true;
     });
+  };
+
+  const closeNotificationsMenuWithDelay = () => {
+    if (notificationsMenuCloseTimer.current) clearTimeout(notificationsMenuCloseTimer.current);
+    notificationsMenuCloseTimer.current = setTimeout(() => {
+      setIsNotificationsOpen(false);
+    }, 140);
   };
 
   const openMoreMenu = () => {
@@ -106,6 +117,17 @@ export default function Header() {
     setAuthInitialMode(mode);
     setIsAuthModalOpen(true);
     setIsMoreMenuOpen(false);
+  };
+
+  const openPublishWork = () => {
+    if (!currentUser) return;
+
+    if (isProfilePage && pathname === profileHref) {
+      window.dispatchEvent(new CustomEvent('artside:open-publish-work'));
+      return;
+    }
+
+    window.location.href = `${profileHref}?publish=1`;
   };
 
   useEffect(() => {
@@ -314,7 +336,7 @@ export default function Header() {
         </div>
       )}
       <header className={`w-full ${isProfilePage ? 'border-b border-white/15 bg-[#111111]' : ''}`}>
-        <div className="mx-auto flex w-full max-w-[1840px] items-center gap-6 px-10 py-5">
+        <div className="flex w-full items-center gap-6 px-10 py-5">
           <div className="flex items-center gap-8">
             <Link href="/" className="text-2xl font-bold tracking-tight text-white">
               Название
@@ -389,13 +411,17 @@ export default function Header() {
 
             {isAuthenticated && (
               <>
-                <div className="relative">
+                <div
+                  className="relative"
+                  onMouseEnter={openNotificationsMenu}
+                  onMouseLeave={closeNotificationsMenuWithDelay}
+                >
                   <button
                     ref={notificationsButtonRef}
                     type="button"
                     aria-label="Уведомления"
                     aria-expanded={isNotificationsOpen}
-                    onClick={toggleNotifications}
+                    onClick={openNotificationsMenu}
                     className="notification-trigger flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/16"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -407,22 +433,27 @@ export default function Header() {
 
                   <div
                     ref={notificationsContainerRef}
-                    className={`absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out origin-top-right ${
+                    onMouseEnter={openNotificationsMenu}
+                    onMouseLeave={closeNotificationsMenuWithDelay}
+                    className={`more-menu ${isNotificationsOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-72 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                       isNotificationsOpen
                         ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
                         : 'pointer-events-none -translate-y-1 scale-95 opacity-0'
                     }`}
                   >
-                    <div className="border-b border-white/10 px-3 py-2 text-sm font-semibold text-white">Уведомления</div>
-                    <div className="p-1">
+                    <div className="more-menu-head">
+                      <span>Уведомления</span>
+                      <small>{notifications.length > 0 ? `${notifications.length} последних событий` : 'Событий пока нет'}</small>
+                    </div>
+                    <div className="more-menu-section">
                       {notifications.length === 0 ? (
-                        <p className="px-3 py-3 text-sm text-white/55">Пока нет новых уведомлений.</p>
+                        <p className="more-menu-empty">Пока нет новых уведомлений.</p>
                       ) : (
                         notifications.map((item) => {
                           const content = (
                             <>
-                              <span className="block text-sm text-white/86">{item.text}</span>
-                              <span className="mt-1 block text-xs text-white/45">{item.createdAt}</span>
+                              <span className="notification-menu-text">{item.text}</span>
+                              <span className="notification-menu-time">{item.createdAt}</span>
                             </>
                           );
 
@@ -431,7 +462,7 @@ export default function Header() {
                               key={item.id}
                               href={item.href}
                               onClick={() => setIsNotificationsOpen(false)}
-                              className="block w-full border-b border-white/10 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-white/10"
+                              className="notification-menu-item"
                             >
                               {content}
                             </Link>
@@ -439,7 +470,7 @@ export default function Header() {
                             <button
                               key={item.id}
                               type="button"
-                              className="block w-full border-b border-white/10 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-white/10"
+                              className="notification-menu-item"
                             >
                               {content}
                             </button>
@@ -449,6 +480,15 @@ export default function Header() {
                     </div>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={openPublishWork}
+                  className="header-upload-btn"
+                >
+                  <span aria-hidden="true">+</span>
+                  Загрузить
+                </button>
 
                 <div
                   className="relative"
@@ -470,7 +510,7 @@ export default function Header() {
                   </Link>
 
                   <div
-                    className={`absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-white/20 bg-black/90 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out origin-top-right ${
+                    className={`more-menu ${isProfileMenuOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-60 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                       isProfileMenuOpen
                         ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
                         : 'pointer-events-none -translate-y-1 scale-95 opacity-0'
@@ -478,15 +518,39 @@ export default function Header() {
                     onMouseEnter={openProfileMenu}
                     onMouseLeave={closeProfileMenuWithDelay}
                   >
+                    <div className="more-menu-head">
+                      <span>Профиль</span>
+                      <small>@{profileUsername}</small>
+                    </div>
+
+                    <div className="more-menu-section">
                     <Link
                       href={profileHref}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                      className=""
                     >
-                      Профиль
+                      <span className="more-menu-icon">P</span>
+                      <span>Мой профиль</span>
                     </Link>
-                    <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-white/90 hover:bg-white/10">
-                      Настройки
+                    <Link
+                      href="/library"
+                      className=""
+                    >
+                      <span className="more-menu-icon">□</span>
+                      <span>Моя библиотека</span>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountSettingsOpen(true);
+                        setIsProfileMenuOpen(false);
+                      }}
+                    >
+                      <span className="more-menu-icon">⚙</span>
+                      <span>Настройки аккаунта</span>
                     </button>
+                    </div>
+
+                    <div className="more-menu-section">
                     <button
                       type="button"
                       onClick={() => {
@@ -502,10 +566,12 @@ export default function Header() {
 
                         void logout();
                       }}
-                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 hover:bg-white/10"
+                      className="more-menu-danger"
                     >
-                      Выйти
+                      <span className="more-menu-icon">→</span>
+                      <span>Выйти</span>
                     </button>
+                    </div>
                   </div>
                 </div>
               </>
@@ -535,7 +601,7 @@ export default function Header() {
                 ref={moreMenuRef}
                 onMouseEnter={openMoreMenu}
                 onMouseLeave={closeMoreMenuWithDelay}
-                className={`more-menu ${isMoreMenuOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-60 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#101010]/95 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
+                className={`more-menu ${isMoreMenuOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-60 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                   isMoreMenuOpen
                     ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
                     : 'pointer-events-none -translate-y-1 scale-95 opacity-0'
@@ -543,36 +609,8 @@ export default function Header() {
               >
                 {isAuthenticated && currentUser ? (
                   <>
-                    <div className="more-menu-head">
-                      <small>@{currentUser.username}</small>
-                    </div>
+                    
 
-                    <div className="more-menu-section">
-                      <Link href={`/profile/${currentUser.username}?publish=1`} onClick={() => setIsMoreMenuOpen(false)}>
-                        <span className="more-menu-icon">+</span>
-                        <span>Загрузить работу</span>
-                      </Link>
-                    </div>
-
-                    <div className="more-menu-section">
-                      <span className="more-menu-label">Аккаунт</span>
-                      <Link href={profileHref} onClick={() => setIsMoreMenuOpen(false)}>
-                        <span className="more-menu-icon">P</span>
-                        <span>Мой профиль</span>
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAccountSettingsOpen(true);
-                          setIsMoreMenuOpen(false);
-                        }}
-                      >
-                        <span className="more-menu-icon">⚙</span>
-                        <span>Настройки аккаунта</span>
-                      </button>
-                    </div>
-
-                    <div className="more-menu-section">
                       <span className="more-menu-label">Информация</span>
                       <button type="button" onClick={() => { setInfoModal('rules'); setIsMoreMenuOpen(false); }}>
                         <span className="more-menu-icon">!</span>
@@ -582,7 +620,6 @@ export default function Header() {
                         <span className="more-menu-icon">i</span>
                         <span>О проекте</span>
                       </button>
-                    </div>
                   </>
                 ) : (
                   <>

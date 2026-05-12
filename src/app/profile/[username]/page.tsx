@@ -1,10 +1,9 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import AccountSettingsModal from '@/app/components/AccountSettingsModal';
-import type { SavedWorkItem } from '@/lib/saved-work-types';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
 import type { WorkSummary } from '@/lib/work-store';
 
@@ -37,7 +36,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [works, setWorks] = useState<WorkSummary[]>([]);
   const [isOwner, setIsOwner] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -47,10 +45,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  const [isSavedLoading, setIsSavedLoading] = useState(true);
-  const [savedError, setSavedError] = useState<string | null>(null);
-  const [savedItems, setSavedItems] = useState<SavedWorkItem[]>([]);
 
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [editingWork, setEditingWork] = useState<WorkSummary | null>(null);
@@ -87,7 +81,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         setProfile(data.profile);
         setWorks(data.works ?? []);
         setIsOwner(data.isOwner);
-        setIsAuthenticated(data.authenticated);
       } catch (error) {
         if ((error as Error).name === 'AbortError') return;
         setPageError('Не удалось загрузить профиль. Попробуйте обновить страницу.');
@@ -102,46 +95,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
 
     return () => controller.abort();
   }, [username]);
-
-  useEffect(() => {
-    if (!isOwner || !isAuthenticated) {
-      setSavedItems([]);
-      setIsSavedLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const loadSavedWorks = async () => {
-      try {
-        setIsSavedLoading(true);
-        setSavedError(null);
-
-        const response = await fetch('/api/saved-works', {
-          signal: controller.signal,
-          cache: 'no-store',
-        });
-
-        if (!response.ok) {
-          throw new Error(`Saved works request failed: ${response.status}`);
-        }
-
-        const data = (await response.json()) as { authenticated: boolean; items: SavedWorkItem[] };
-        setSavedItems(data.authenticated ? data.items ?? [] : []);
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') return;
-        setSavedError('Не удалось загрузить сохраненные работы.');
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsSavedLoading(false);
-        }
-      }
-    };
-
-    void loadSavedWorks();
-
-    return () => controller.abort();
-  }, [isOwner, isAuthenticated]);
 
   useEffect(() => {
     if (!workImage) {
@@ -166,17 +119,31 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     }
   }, [isOwner, searchParams]);
 
+  useEffect(() => {
+    if (!isOwner) return;
+
+    const handleOpenPublishWork = () => {
+      setWorkForm(emptyWorkForm);
+      setWorkImage(null);
+      setWorkImagePreview(null);
+      setEditingWork(null);
+      setPublishMessage(null);
+      setIsPublishModalOpen(true);
+    };
+
+    window.addEventListener('artside:open-publish-work', handleOpenPublishWork);
+
+    return () => {
+      window.removeEventListener('artside:open-publish-work', handleOpenPublishWork);
+    };
+  }, [isOwner]);
+
   const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
   const publishedWorks = works.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
     category,
     works: publishedWorks.filter((work) => work.category === category),
   }));
-
-  const savedCards = useMemo(
-    () => savedItems.filter((item): item is SavedWorkItem & { title: string; imageUrl: string } => Boolean(item.title && item.imageUrl)),
-    [savedItems]
-  );
 
   const closePublishModal = () => {
     if (isPublishingWork) return;
@@ -441,13 +408,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 >
                   {isSavingProfile ? 'Сохраняем...' : isEditing ? 'Сохранить' : 'Редактировать'}
                 </button>
-                <button
-                  type="button"
-                  onClick={openCreateWorkModal}
-                  className="h-12 w-full rounded-xl border border-black/15 bg-white/70 px-4 text-sm font-black uppercase tracking-[0.12em] text-black transition-colors hover:bg-white"
-                >
-                  Загрузить работу
-                </button>
               </div>
             ) : (
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-black/70">Публичный профиль</p>
@@ -494,7 +454,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
           </div>
         </aside>
 
-        <section className="space-y-7 pt-4">
+        <section className="">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {featuredWorks.map((work) => (
               <div key={work.id} className="profile-work-card">
@@ -515,38 +475,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             ))}
           </div>
 
-          {isOwner && (
-            <div className="space-y-4">
-              <span className="inline-flex rounded-lg bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black">
-                Сохраненные работы
-              </span>
-
-              {isSavedLoading && <p className="text-sm text-white/65">Загрузка сохраненных работ...</p>}
-              {savedError && <p className="text-sm text-red-300">{savedError}</p>}
-              {!isSavedLoading && !savedError && savedCards.length === 0 && (
-                <p className="text-sm text-white/70">У вас пока нет сохраненных работ.</p>
-              )}
-
-              {!isSavedLoading && !savedError && savedCards.length > 0 && (
-                <div className="recommend-masonry">
-                  {savedCards.map((item) => (
-                    <a key={item.id} href={`/work/${item.id}`} className="recommend-card block">
-                      <div className="recommend-card-media">
-                        <Image
-                          src={item.imageUrl}
-                          alt={item.title}
-                          width={item.imageWidth ?? 1200}
-                          height={item.imageHeight ?? 1500}
-                          unoptimized
-                        />
-                      </div>
-                      <p className="px-2 py-2 text-xs uppercase tracking-[0.08em] text-white/72">{item.title}</p>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           {categorySections.map((section) => (
             <div key={section.category} className="space-y-4">
@@ -574,6 +502,19 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               </div>
             </div>
           ))}
+
+          {works.length === 0 && (
+            <div className="profile-empty-works">
+              <h2>{isOwner ? 'Опубликуйте первую работу' : 'У пользователя пока нет работ'}</h2>
+              <p>{isOwner ? 'Добавьте изображение, описание и теги, чтобы профиль начал выглядеть как портфолио.' : 'Когда автор добавит работы, они появятся здесь.'}</p>
+              {isOwner && (
+                <button type="button" onClick={openCreateWorkModal}>
+                  <span aria-hidden="true">+</span>
+                  Загрузить первую работу
+                </button>
+              )}
+            </div>
+          )}
         </section>
       </div>
 

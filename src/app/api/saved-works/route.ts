@@ -4,6 +4,7 @@ import { getSessionUser } from '@/lib/session-user';
 
 type SaveWorkBody = {
   id?: number;
+  folderId?: number;
 };
 
 export async function GET() {
@@ -35,6 +36,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Некорректный идентификатор работы.' }, { status: 400 });
   }
 
-  const items = await saveWork(user.id, normalizedId);
+  const normalizedFolderId = typeof body.folderId === 'number' && Number.isInteger(body.folderId) && body.folderId > 0
+    ? body.folderId
+    : undefined;
+
+  const items = await saveWork(user.id, normalizedId, normalizedFolderId);
   return NextResponse.json({ authenticated: true, items });
 }

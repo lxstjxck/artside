@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import WorkCloseButton from '@/app/components/work/WorkCloseButton';
 import type { WorkComment, WorkDetail } from '@/lib/work-catalog';
+import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
 
 type WorkViewContentProps = {
   work: WorkDetail;
@@ -19,6 +20,17 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
   const [comments, setComments] = useState<WorkComment[]>(work.comments);
   const [commentText, setCommentText] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [libraryFolders, setLibraryFolders] = useState<LibraryFolderItem[]>([]);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false);
+  const [collectionSearch, setCollectionSearch] = useState('');
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false);
+
+  const filteredFolders = useMemo(() => (
+    libraryFolders.filter((folder) => folder.name.toLowerCase().includes(collectionSearch.trim().toLowerCase()))
+  ), [collectionSearch, libraryFolders]);
 
   useEffect(() => {
     const markViewed = async () => {
@@ -45,20 +57,87 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
     if (typeof data.likes === 'number') setLikes(data.likes);
   };
 
-  const toggleSaved = async () => {
+  const loadLibraryFolders = async () => {
+    setIsLibraryLoading(true);
     setMessage(null);
-    const response = await fetch(isSaved ? `/api/saved-works/${work.id}` : '/api/saved-works', {
-      method: isSaved ? 'DELETE' : 'POST',
-      headers: isSaved ? undefined : { 'Content-Type': 'application/json' },
-      body: isSaved ? undefined : JSON.stringify({ id: work.id }),
+
+    try {
+      const response = await fetch('/api/library', { cache: 'no-store' });
+      const data = (await response.json()) as { authenticated: boolean; folders?: LibraryFolderItem[]; message?: string };
+
+      if (!response.ok || !data.authenticated) {
+        throw new Error(data.message ?? 'Войдите в аккаунт, чтобы сохранять работы.');
+      }
+
+      setLibraryFolders(data.folders ?? []);
+    } catch (error) {
+      setMessage((error as Error).message || 'Не удалось загрузить папки библиотеки.');
+    } finally {
+      setIsLibraryLoading(false);
+    }
+  };
+
+  const openSaveModal = () => {
+    setCollectionSearch('');
+    setNewCollectionName('');
+    setIsSaveModalOpen(true);
+    void loadLibraryFolders();
+  };
+
+  const closeSaveModal = () => {
+    setIsSaveModalOpen(false);
+    setCollectionSearch('');
+    setNewCollectionName('');
+    setIsCreatingCollection(false);
+  };
+
+  const saveWorkToFolder = async (folderId: number) => {
+    setMessage(null);
+    const response = await fetch('/api/saved-works', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: work.id, folderId }),
     });
-    const data = (await response.json().catch(() => ({}))) as { message?: string };
-    if (!response.ok) {
-      setMessage(data.message ?? 'Не удалось обновить сохранение.');
+    const data = (await response.json().catch(() => ({}))) as { message?: string; items?: SavedWorkItem[] };
+    if (!response.ok || !data.items) {
+      setMessage(data.message ?? 'Не удалось сохранить работу.');
       return;
     }
-    setIsSaved((current) => !current);
-    setSaves((current) => current + (isSaved ? -1 : 1));
+
+    if (!isSaved) {
+      setSaves((current) => current + 1);
+    }
+    setIsSaved(true);
+    closeSaveModal();
+    setMessage('Работа сохранена в библиотеку.');
+  };
+
+  const createCollection = async () => {
+    if (!newCollectionName.trim() || isCreatingCollection) return;
+
+    setIsCreatingCollection(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/library/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCollectionName }),
+      });
+      const data = (await response.json()) as { folders?: LibraryFolderItem[]; message?: string };
+
+      if (!response.ok || !data.folders) {
+        throw new Error(data.message ?? 'Не удалось создать папку.');
+      }
+
+      setLibraryFolders(data.folders);
+      setCollectionSearch('');
+      setNewCollectionName('');
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally {
+      setIsCreatingCollection(false);
+    }
   };
 
   const submitComment = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -96,6 +175,10 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
           <p className="work-view-kind">{work.category}</p>
           <h2 className="work-view-title">{work.title}</h2>
           <p className="work-view-author">Автор: {work.author}</p>
+          <div className="work-view-meta">
+            <span>{work.imageWidth}x{work.imageHeight}</span>
+            <span>{work.publishedAt}</span>
+          </div>
         </div>
 
         <div className="work-view-stats">
@@ -103,7 +186,6 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
           <span>{likes.toLocaleString('ru-RU')} лайков</span>
           <span>{saves.toLocaleString('ru-RU')} сохранений</span>
           <span>{comments.length} комментариев</span>
-          <span>{work.publishedAt}</span>
         </div>
 
         <p className="work-view-description">{work.description}</p>
@@ -112,7 +194,7 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
           <button type="button" className={`work-view-btn ${isLiked ? 'work-view-btn-active' : ''}`} onClick={toggleLike}>
             {isLiked ? 'Лайкнуто' : 'Лайк'}
           </button>
-          <button type="button" className={`work-view-btn ${isSaved ? 'work-view-btn-active' : ''}`} onClick={toggleSaved}>
+          <button type="button" className={`work-view-btn ${isSaved ? 'work-view-btn-active' : ''}`} onClick={openSaveModal}>
             {isSaved ? 'Сохранено' : 'Сохранить'}
           </button>
           <button type="button" className="work-view-btn" onClick={() => navigator.clipboard?.writeText(window.location.href)}>
@@ -145,6 +227,70 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
           ))}
         </div>
       </aside>
+
+      {isSaveModalOpen && (
+        <div className="collection-modal-overlay" onClick={closeSaveModal}>
+          <div className="collection-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="collection-modal-head">
+              <h2>Добавить работу в коллекцию</h2>
+              <button type="button" onClick={closeSaveModal} aria-label="Закрыть">
+                ×
+              </button>
+            </div>
+
+            <div className="collection-create-row">
+              <input
+                value={newCollectionName}
+                onChange={(event) => setNewCollectionName(event.target.value)}
+                placeholder="Название новой папки"
+                maxLength={40}
+              />
+              <button type="button" onClick={createCollection} disabled={isCreatingCollection || !newCollectionName.trim()}>
+                <span aria-hidden="true">+</span>
+                Создать
+              </button>
+            </div>
+
+            <label className="collection-search">
+              <span aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m21 21-4.3-4.3" />
+                  <circle cx="11" cy="11" r="7" />
+                </svg>
+              </span>
+              <input
+                value={collectionSearch}
+                onChange={(event) => setCollectionSearch(event.target.value)}
+                placeholder="Поиск папок..."
+              />
+            </label>
+
+            {message && <p className="collection-modal-error">{message}</p>}
+
+            <div className="collection-list">
+              {isLibraryLoading ? (
+                <p className="collection-empty">Загрузка папок...</p>
+              ) : filteredFolders.length === 0 ? (
+                <p className="collection-empty">Папок пока нет. Создайте новую выше.</p>
+              ) : (
+                filteredFolders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => void saveWorkToFolder(folder.id)}
+                  >
+                    <span className="collection-folder-icon" aria-hidden="true" />
+                    <span>
+                      <strong>{folder.name}</strong>
+                      <small>{folder.count} работ</small>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

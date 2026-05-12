@@ -34,6 +34,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 .next-dev*.log
 
 # env files (can opt-in for committing if needed)
@@ -50,5 +51,18 @@ next-env.d.ts
 /src/generated/prisma
 prisma/dev.db
 prisma/dev.db-*
+prisma/*.db
+prisma/*.db-*
+prisma/*.sqlite
+prisma/*.sqlite-*
+*.db-journal
+*.db-wal
+*.db-shm
 public/uploads/*
 !public/uploads/.gitkeep
+
+# local temp/cache
+.cache/
+.tmp/
+tmp/
+temp/
