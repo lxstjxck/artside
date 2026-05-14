@@ -2,8 +2,6 @@
 
 import { use, useEffect, useState } from 'react';
 import Image from 'next/image';
-import { useSearchParams } from 'next/navigation';
-import AccountSettingsModal from '@/app/components/AccountSettingsModal';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
 import type { WorkSummary } from '@/lib/work-store';
 
@@ -30,7 +28,6 @@ const emptyWorkForm = {
 
 export default function ProfilePage({ params }: ProfilePageProps) {
   const { username } = use(params);
-  const searchParams = useSearchParams();
 
   const [profileUser, setProfileUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -40,11 +37,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [editingWork, setEditingWork] = useState<WorkSummary | null>(null);
@@ -107,37 +100,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     return () => URL.revokeObjectURL(url);
   }, [workImage]);
 
-  useEffect(() => {
-    if (isOwner && searchParams.get('publish') === '1') {
-      setWorkForm(emptyWorkForm);
-      setWorkImage(null);
-      setWorkImagePreview(null);
-      setEditingWork(null);
-      setPublishMessage(null);
-      setIsPublishModalOpen(true);
-      window.history.replaceState(null, '', window.location.pathname);
-    }
-  }, [isOwner, searchParams]);
-
-  useEffect(() => {
-    if (!isOwner) return;
-
-    const handleOpenPublishWork = () => {
-      setWorkForm(emptyWorkForm);
-      setWorkImage(null);
-      setWorkImagePreview(null);
-      setEditingWork(null);
-      setPublishMessage(null);
-      setIsPublishModalOpen(true);
-    };
-
-    window.addEventListener('artside:open-publish-work', handleOpenPublishWork);
-
-    return () => {
-      window.removeEventListener('artside:open-publish-work', handleOpenPublishWork);
-    };
-  }, [isOwner]);
-
   const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
   const publishedWorks = works.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
@@ -160,10 +122,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   };
 
   const openCreateWorkModal = () => {
-    resetWorkForm();
-    setEditingWork(null);
-    setPublishMessage(null);
-    setIsPublishModalOpen(true);
+    window.location.href = '/publish';
   };
 
   const openEditWorkModal = (work: WorkSummary) => {
@@ -178,59 +137,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     setWorkImagePreview(null);
     setPublishMessage(null);
     setIsPublishModalOpen(true);
-  };
-
-  const updateProfileField = (field: keyof UserProfile, value: string) => {
-    setProfile((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        [field]: value,
-      };
-    });
-  };
-
-  const submitProfileChanges = async () => {
-    if (!profile || !isOwner) return;
-
-    try {
-      setIsSavingProfile(true);
-      setProfileMessage(null);
-
-      const formData = new FormData();
-      formData.set('nickname', profile.nickname);
-      formData.set('location', profile.location);
-      formData.set('bio', profile.bio);
-      formData.set('avatarUrl', profile.avatarUrl);
-      if (avatarFile) {
-        formData.set('avatar', avatarFile);
-      }
-
-      const response = await fetch('/api/profile', {
-        method: 'PATCH',
-        body: formData,
-      });
-
-      const data = (await response.json()) as { message?: string; profile?: UserProfile };
-
-      if (!response.ok || !data.profile) {
-        setProfileMessage(data.message ?? 'Не удалось сохранить изменения профиля.');
-        return;
-      }
-
-      setProfile(data.profile);
-      setAvatarFile(null);
-      setProfileMessage('Профиль сохранен.');
-      setIsEditing(false);
-    } catch {
-      setProfileMessage('Сетевая ошибка при сохранении профиля.');
-    } finally {
-      setIsSavingProfile(false);
-    }
-  };
-
-  const openSettings = () => {
-    setIsSettingsOpen(true);
   };
 
   const submitWork = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -336,9 +242,8 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         <aside className="relative rounded-[28px] bg-[linear-gradient(90deg,#ba7ea3_0%,#b694ba_35%,#8ea9d4_75%,#84b6dc_100%)] p-5 text-[#111111] shadow-soft">
           <div className="flex flex-col items-center">
             {isOwner && (
-              <button
-                type="button"
-                onClick={openSettings}
+              <a
+                href="/settings"
                 className="profile-settings-gear"
                 aria-label="Настройки аккаунта"
                 title="Настройки аккаунта"
@@ -347,7 +252,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
                   <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.04.04a2 2 0 0 1-2.83 2.83l-.04-.04A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .93l-.02.05a2 2 0 0 1-3.78 0l-.02-.05a1.7 1.7 0 0 0-1-.93 1.7 1.7 0 0 0-1.88.34l-.04.04a2 2 0 0 1-2.83-2.83l.04-.04A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-.93-1l-.05-.02a2 2 0 0 1 0-3.78l.05-.02a1.7 1.7 0 0 0 .93-1 1.7 1.7 0 0 0-.34-1.88l-.04-.04a2 2 0 0 1 2.83-2.83l.04.04A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-.93l.02-.05a2 2 0 0 1 3.78 0l.02.05a1.7 1.7 0 0 0 1 .93 1.7 1.7 0 0 0 1.88-.34l.04-.04a2 2 0 0 1 2.83 2.83l-.04.04A1.7 1.7 0 0 0 19.37 9c.08.38.43.72.93 1l.05.02a2 2 0 0 1 0 3.78l-.05.02a1.7 1.7 0 0 0-.9 1.18Z" />
                 </svg>
-              </button>
+              </a>
             )}
 
             <div className="mb-5 flex h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-[#111111]">
@@ -361,55 +266,17 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               )}
             </div>
 
-            {isEditing ? (
-              <input
-                type="text"
-                value={profile.nickname}
-                onChange={(event) => updateProfileField('nickname', event.target.value)}
-                className="mb-5 w-full rounded-xl border border-black/15 bg-white/55 px-4 py-2 text-center text-2xl font-black tracking-wide text-black outline-none"
-                disabled={!isOwner || isSavingProfile}
-              />
-            ) : (
-              <h1 className="mb-5 text-center text-[2rem] font-black tracking-wide">{profile.nickname}</h1>
-            )}
+            <h1 className="mb-5 text-center text-[2rem] font-black tracking-wide">{profile.nickname}</h1>
 
             <div className="mb-5 flex w-full items-center gap-3 text-sm font-medium text-black/80">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z" />
                 <circle cx="12" cy="10" r="3" />
               </svg>
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={profile.location}
-                  onChange={(event) => updateProfileField('location', event.target.value)}
-                  className="w-full rounded-lg border border-black/15 bg-white/55 px-3 py-2 text-sm text-black outline-none"
-                  disabled={!isOwner || isSavingProfile}
-                />
-              ) : (
-                <span>{profile.location}</span>
-              )}
+              <span>{profile.location}</span>
             </div>
 
-            {isOwner ? (
-              <div className="mb-5 grid w-full grid-cols-1 gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isEditing) {
-                      void submitProfileChanges();
-                      return;
-                    }
-                    setIsEditing(true);
-                    setProfileMessage(null);
-                  }}
-                  disabled={isSavingProfile}
-                  className="h-12 w-full rounded-xl bg-[#111111] px-4 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-[#1c1c1c] disabled:opacity-60"
-                >
-                  {isSavingProfile ? 'Сохраняем...' : isEditing ? 'Сохранить' : 'Редактировать'}
-                </button>
-              </div>
-            ) : (
+            {!isOwner && (
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-black/70">Публичный профиль</p>
             )}
 
@@ -419,37 +286,8 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               </p>
             )}
 
-            {isEditing && isOwner && (
-              <div className="mb-5 grid w-full gap-2">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)}
-                  className="w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none"
-                  disabled={isSavingProfile}
-                />
-                <input
-                  type="text"
-                  value={profile.avatarUrl}
-                  onChange={(event) => updateProfileField('avatarUrl', event.target.value)}
-                  placeholder="Ссылка на аватар"
-                  className="w-full rounded-xl border border-black/15 bg-white/55 px-4 py-3 text-sm text-black outline-none placeholder:text-black/45"
-                  disabled={isSavingProfile || Boolean(avatarFile)}
-                />
-              </div>
-            )}
-
             <div className="w-full rounded-[22px] bg-white/42 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_14px_34px_rgba(0,0,0,0.12)] backdrop-blur-sm">
-              {isEditing ? (
-                <textarea
-                  value={profile.bio}
-                  onChange={(event) => updateProfileField('bio', event.target.value)}
-                  className="min-h-[210px] w-full resize-none rounded-xl border border-black/10 bg-white/58 p-4 text-sm leading-6 text-black/80 outline-none"
-                  disabled={!isOwner || isSavingProfile}
-                />
-              ) : (
-                <p className="min-h-[210px] text-sm leading-6 text-black/78">{profile.bio}</p>
-              )}
+              <p className="min-h-[210px] text-sm leading-6 text-black/78">{profile.bio}</p>
             </div>
           </div>
         </aside>
@@ -558,15 +396,6 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             </button>
           </form>
         </div>
-      )}
-
-      {isSettingsOpen && profileUser && (
-        <AccountSettingsModal
-          isOpen={isSettingsOpen}
-          user={profileUser}
-          onClose={() => setIsSettingsOpen(false)}
-          onUserUpdate={setProfileUser}
-        />
       )}
     </main>
   );

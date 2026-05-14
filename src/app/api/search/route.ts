@@ -1,7 +1,19 @@
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getSessionUser } from '@/lib/session-user';
 import { listHomeFeed } from '@/lib/home-feed';
+
+const searchWorkInclude = {
+  author: {
+    select: {
+      username: true,
+      profile: { select: { nickname: true } },
+    },
+  },
+} satisfies Prisma.WorkInclude;
+
+type SearchWork = Prisma.WorkGetPayload<{ include: typeof searchWorkInclude }>;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -27,18 +39,11 @@ export async function GET(request: Request) {
     },
     take: 12,
     orderBy: { createdAt: 'desc' },
-    include: {
-      author: {
-        select: {
-          username: true,
-          profile: { select: { nickname: true } },
-        },
-      },
-    },
+    include: searchWorkInclude,
   });
 
   return NextResponse.json({
-    items: items.map((work) => ({
+    items: items.map((work: SearchWork) => ({
       id: work.id,
       title: work.title,
       category: work.category,

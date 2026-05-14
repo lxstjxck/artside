@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { listLibraryFolders, listSavedWorks } from '@/lib/saved-work-store';
+import { LIKED_LIBRARY_FOLDER_ID } from '@/lib/saved-work-types';
 import { getSessionUser } from '@/lib/session-user';
 
 export async function GET(request: Request) {
@@ -10,7 +11,9 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const folderId = Number(searchParams.get('folderId'));
-  const normalizedFolderId = Number.isInteger(folderId) && folderId > 0 ? folderId : null;
+  const normalizedFolderId = folderId === LIKED_LIBRARY_FOLDER_ID || (Number.isInteger(folderId) && folderId > 0)
+    ? folderId
+    : null;
 
   const [folders, items] = await Promise.all([
     listLibraryFolders(user.id),

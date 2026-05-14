@@ -4,6 +4,7 @@ import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { getSessionUser } from '@/lib/session-user';
 import { deleteWorkImage, uploadWorkImage } from '@/lib/work-image-storage';
 import { findUserById, mapStoredUserToPublic, updateUserProfile } from '@/lib/user-store';
+import { listUserWorks } from '@/lib/work-store';
 
 type ProfilePatchBody = {
   nickname?: string;
@@ -32,10 +33,13 @@ export async function GET() {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
+  const works = await listUserWorks(fullUser.id, sessionUser.id);
+
   return NextResponse.json({
     authenticated: true,
     user: mapStoredUserToPublic(fullUser),
     profile: fullUser.profile,
+    worksCount: works.length,
   });
 }
 

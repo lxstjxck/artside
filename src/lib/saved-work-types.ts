@@ -1,3 +1,6 @@
+export const LIKED_LIBRARY_FOLDER_ID = -1;
+export const LIKED_LIBRARY_FOLDER_NAME = 'Понравившиеся';
+
 export type SavedWorkItem = {
   id: number;
   folderId?: number | null;
@@ -16,6 +19,7 @@ export type LibraryFolderItem = {
   count: number;
   sortOrder: number;
   createdAt: string;
+  system?: boolean;
 };
 
 export type SavedWorksResponse = {

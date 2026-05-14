@@ -91,6 +91,31 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
     setIsCreatingCollection(false);
   };
 
+  const removeSavedWork = async () => {
+    setMessage(null);
+    const response = await fetch(`/api/saved-works/${work.id}`, { method: 'DELETE' });
+    const data = (await response.json().catch(() => ({}))) as { message?: string };
+
+    if (!response.ok) {
+      setMessage(data.message ?? 'Не удалось удалить работу из библиотеки.');
+      return;
+    }
+
+    setIsSaved(false);
+    setSaves((current) => Math.max(0, current - 1));
+    closeSaveModal();
+    setMessage('Работа удалена из библиотеки.');
+  };
+
+  const toggleSavedWork = () => {
+    if (isSaved) {
+      void removeSavedWork();
+      return;
+    }
+
+    openSaveModal();
+  };
+
   const saveWorkToFolder = async (folderId: number) => {
     setMessage(null);
     const response = await fetch('/api/saved-works', {
@@ -194,7 +219,7 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
           <button type="button" className={`work-view-btn ${isLiked ? 'work-view-btn-active' : ''}`} onClick={toggleLike}>
             {isLiked ? 'Лайкнуто' : 'Лайк'}
           </button>
-          <button type="button" className={`work-view-btn ${isSaved ? 'work-view-btn-active' : ''}`} onClick={openSaveModal}>
+          <button type="button" className={`work-view-btn ${isSaved ? 'work-view-btn-active' : ''}`} onClick={toggleSavedWork}>
             {isSaved ? 'Сохранено' : 'Сохранить'}
           </button>
           <button type="button" className="work-view-btn" onClick={() => navigator.clipboard?.writeText(window.location.href)}>
@@ -273,7 +298,7 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
               ) : filteredFolders.length === 0 ? (
                 <p className="collection-empty">Папок пока нет. Создайте новую выше.</p>
               ) : (
-                filteredFolders.map((folder) => (
+                filteredFolders.filter((folder) => !folder.system).map((folder) => (
                   <button
                     key={folder.id}
                     type="button"

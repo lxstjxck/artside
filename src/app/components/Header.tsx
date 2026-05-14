@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import AccountSettingsModal from './AccountSettingsModal';
 import AuthModal from './AuthModal';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
 
@@ -27,7 +26,6 @@ type SearchItem = {
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
-  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [infoModal, setInfoModal] = useState<'about' | 'rules' | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
@@ -42,32 +40,19 @@ export default function Header() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const profileUsername = currentUser?.username ?? 'Название_user';
   const profileHref = `/profile/${profileUsername}`;
-  const profileMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const notificationsMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const moreMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const notificationsContainerRef = useRef<HTMLDivElement | null>(null);
   const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const moreMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const pathname = usePathname();
   const isProfilePage = pathname.startsWith('/profile/');
+  const isLibraryPage = pathname.startsWith('/library');
+  const isSettingsPage = pathname.startsWith('/settings');
+  const isPublishPage = pathname.startsWith('/publish');
   const hasUnreadNotifications = notifications.some((item) => item.unread);
   const isAuthenticated = Boolean(currentUser);
-
-  const openProfileMenu = () => {
-    if (profileMenuCloseTimer.current) {
-      clearTimeout(profileMenuCloseTimer.current);
-      profileMenuCloseTimer.current = null;
-    }
-    setIsProfileMenuOpen(true);
-  };
-
-  const closeProfileMenuWithDelay = () => {
-    if (profileMenuCloseTimer.current) clearTimeout(profileMenuCloseTimer.current);
-    profileMenuCloseTimer.current = setTimeout(() => {
-      setIsProfileMenuOpen(false);
-    }, 120);
-  };
 
   const markNotificationsAsRead = async () => {
     const response = await fetch('/api/notifications/read-all', { method: 'POST' });
@@ -78,39 +63,14 @@ export default function Header() {
     }
   };
 
-  const openNotificationsMenu = () => {
-    if (notificationsMenuCloseTimer.current) {
-      clearTimeout(notificationsMenuCloseTimer.current);
-      notificationsMenuCloseTimer.current = null;
-    }
+  const toggleNotificationsMenu = () => {
     setIsNotificationsOpen((current) => {
-      if (!current) {
+      const next = !current;
+      if (next) {
         void markNotificationsAsRead();
       }
-      return true;
+      return next;
     });
-  };
-
-  const closeNotificationsMenuWithDelay = () => {
-    if (notificationsMenuCloseTimer.current) clearTimeout(notificationsMenuCloseTimer.current);
-    notificationsMenuCloseTimer.current = setTimeout(() => {
-      setIsNotificationsOpen(false);
-    }, 140);
-  };
-
-  const openMoreMenu = () => {
-    if (moreMenuCloseTimer.current) {
-      clearTimeout(moreMenuCloseTimer.current);
-      moreMenuCloseTimer.current = null;
-    }
-    setIsMoreMenuOpen(true);
-  };
-
-  const closeMoreMenuWithDelay = () => {
-    if (moreMenuCloseTimer.current) clearTimeout(moreMenuCloseTimer.current);
-    moreMenuCloseTimer.current = setTimeout(() => {
-      setIsMoreMenuOpen(false);
-    }, 140);
   };
 
   const openAuth = (mode: 'login' | 'register') => {
@@ -121,14 +81,28 @@ export default function Header() {
 
   const openPublishWork = () => {
     if (!currentUser) return;
-
-    if (isProfilePage && pathname === profileHref) {
-      window.dispatchEvent(new CustomEvent('artside:open-publish-work'));
-      return;
-    }
-
-    window.location.href = `${profileHref}?publish=1`;
+    window.location.href = '/publish';
   };
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const inPanel = profileMenuRef.current?.contains(target);
+      const inButton = profileMenuButtonRef.current?.contains(target);
+
+      if (!inPanel && !inButton) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isProfileMenuOpen]);
 
   useEffect(() => {
     if (!isNotificationsOpen) return;
@@ -300,14 +274,6 @@ export default function Header() {
           }}
         />
       )}
-      {currentUser && (
-        <AccountSettingsModal
-          isOpen={isAccountSettingsOpen}
-          user={currentUser}
-          onClose={() => setIsAccountSettingsOpen(false)}
-          onUserUpdate={setCurrentUser}
-        />
-      )}
       {infoModal && (
         <div className="settings-modal-overlay" onClick={() => setInfoModal(null)}>
           <section className="info-modal" onClick={(event) => event.stopPropagation()}>
@@ -335,7 +301,7 @@ export default function Header() {
           </section>
         </div>
       )}
-      <header className={`w-full ${isProfilePage ? 'border-b border-white/15 bg-[#111111]' : ''}`}>
+      <header className={`w-full ${(isProfilePage || isLibraryPage || isSettingsPage || isPublishPage) ? 'border-b border-white/15 bg-[#111111]' : ''}`}>
         <div className="flex w-full items-center gap-6 px-10 py-5">
           <div className="flex items-center gap-8">
             <Link href="/" className="text-2xl font-bold tracking-tight text-white">
@@ -411,17 +377,13 @@ export default function Header() {
 
             {isAuthenticated && (
               <>
-                <div
-                  className="relative"
-                  onMouseEnter={openNotificationsMenu}
-                  onMouseLeave={closeNotificationsMenuWithDelay}
-                >
+                <div className="relative">
                   <button
                     ref={notificationsButtonRef}
                     type="button"
                     aria-label="Уведомления"
                     aria-expanded={isNotificationsOpen}
-                    onClick={openNotificationsMenu}
+                    onClick={toggleNotificationsMenu}
                     className="notification-trigger flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/16"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -433,8 +395,6 @@ export default function Header() {
 
                   <div
                     ref={notificationsContainerRef}
-                    onMouseEnter={openNotificationsMenu}
-                    onMouseLeave={closeNotificationsMenuWithDelay}
                     className={`more-menu ${isNotificationsOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-72 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                       isNotificationsOpen
                         ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
@@ -490,14 +450,13 @@ export default function Header() {
                   Загрузить
                 </button>
 
-                <div
-                  className="relative"
-                  onMouseEnter={openProfileMenu}
-                  onMouseLeave={closeProfileMenuWithDelay}
-                >
-                  <Link
-                    href={profileHref}
+                <div className="relative">
+                  <button
+                    ref={profileMenuButtonRef}
+                    type="button"
                     aria-label="Профиль пользователя"
+                    aria-expanded={isProfileMenuOpen}
+                    onClick={() => setIsProfileMenuOpen((current) => !current)}
                     className="avatar-trigger flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/50 bg-white/90 text-black shadow-soft cursor-pointer"
                   >
                     {avatarUrl ? (
@@ -507,16 +466,15 @@ export default function Header() {
                         <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" />
                       </svg>
                     )}
-                  </Link>
+                  </button>
 
                   <div
+                    ref={profileMenuRef}
                     className={`more-menu ${isProfileMenuOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-60 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                       isProfileMenuOpen
                         ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
                         : 'pointer-events-none -translate-y-1 scale-95 opacity-0'
                     }`}
-                    onMouseEnter={openProfileMenu}
-                    onMouseLeave={closeProfileMenuWithDelay}
                   >
                     <div className="more-menu-head">
                       <span>Профиль</span>
@@ -527,6 +485,7 @@ export default function Header() {
                     <Link
                       href={profileHref}
                       className=""
+                      onClick={() => setIsProfileMenuOpen(false)}
                     >
                       <span className="more-menu-icon">P</span>
                       <span>Мой профиль</span>
@@ -534,20 +493,15 @@ export default function Header() {
                     <Link
                       href="/library"
                       className=""
+                      onClick={() => setIsProfileMenuOpen(false)}
                     >
                       <span className="more-menu-icon">□</span>
                       <span>Моя библиотека</span>
                     </Link>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsAccountSettingsOpen(true);
-                        setIsProfileMenuOpen(false);
-                      }}
-                    >
+                    <Link href="/settings" onClick={() => setIsProfileMenuOpen(false)}>
                       <span className="more-menu-icon">⚙</span>
                       <span>Настройки аккаунта</span>
-                    </button>
+                    </Link>
                     </div>
 
                     <div className="more-menu-section">
@@ -577,17 +531,13 @@ export default function Header() {
               </>
             )}
 
-            <div
-              className="relative"
-              onMouseEnter={openMoreMenu}
-              onMouseLeave={closeMoreMenuWithDelay}
-            >
+            <div className="relative">
               <button
                 ref={moreMenuButtonRef}
                 type="button"
                 aria-label="Меню"
                 aria-expanded={isMoreMenuOpen}
-                onClick={openMoreMenu}
+                onClick={() => setIsMoreMenuOpen((current) => !current)}
                 className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 hover:text-white transition-colors cursor-pointer"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -599,8 +549,6 @@ export default function Header() {
 
               <div
                 ref={moreMenuRef}
-                onMouseEnter={openMoreMenu}
-                onMouseLeave={closeMoreMenuWithDelay}
                 className={`more-menu ${isMoreMenuOpen ? 'more-menu-open' : ''} absolute right-0 top-full z-[70] flex w-60 origin-top-right flex-col gap-1 rounded-2xl border border-white/15 bg-[#121212]/96 p-2 shadow-2xl backdrop-blur transition-all duration-150 ${
                   isMoreMenuOpen
                     ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'

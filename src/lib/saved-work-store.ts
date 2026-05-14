@@ -1,5 +1,6 @@
 ﻿import { ensureDatabaseSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
+import { LIKED_LIBRARY_FOLDER_ID, LIKED_LIBRARY_FOLDER_NAME } from '@/lib/saved-work-types';
 import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
 
 export const DEFAULT_LIBRARY_FOLDER_NAME = 'Избранное';
@@ -32,6 +33,12 @@ const mapSavedWork = (item: {
   imageHeight: item.work?.imageHeight,
   author: item.work ? item.work.author.profile?.nickname || item.work.author.username : undefined,
 });
+
+const isSystemFolderName = (name: string) => {
+  const normalizedName = name.trim().toLowerCase();
+  return normalizedName === DEFAULT_LIBRARY_FOLDER_NAME.toLowerCase()
+    || normalizedName === LIKED_LIBRARY_FOLDER_NAME.toLowerCase();
+};
 
 export const ensureDefaultLibraryFolder = async (userId: string) => {
   await ensureDatabaseSchema();
@@ -96,7 +103,8 @@ export const ensureDefaultLibraryFolder = async (userId: string) => {
 
 export const listLibraryFolders = async (userId: string): Promise<LibraryFolderItem[]> => {
   await ensureDefaultLibraryFolder(userId);
-  const folders = await prisma.libraryFolder.findMany({
+  const [folders, likedCount] = await Promise.all([
+    prisma.libraryFolder.findMany({
     where: { userId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     include: {
@@ -106,15 +114,30 @@ export const listLibraryFolders = async (userId: string): Promise<LibraryFolderI
         },
       },
     },
-  });
+    }),
+    prisma.workLike.count({ where: { userId } }),
+  ]);
 
-  return folders.map((folder) => ({
+  const mappedFolders = folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
     count: folder._count.savedWorks,
     sortOrder: folder.sortOrder,
     createdAt: folder.createdAt.toISOString(),
   }));
+
+  return [
+    ...mappedFolders.slice(0, 1),
+    {
+      id: LIKED_LIBRARY_FOLDER_ID,
+      name: LIKED_LIBRARY_FOLDER_NAME,
+      count: likedCount,
+      sortOrder: 1,
+      createdAt: new Date(0).toISOString(),
+      system: true,
+    },
+    ...mappedFolders.slice(1),
+  ];
 };
 
 export const createLibraryFolder = async (userId: string, name: string): Promise<LibraryFolderItem[]> => {
@@ -122,6 +145,9 @@ export const createLibraryFolder = async (userId: string, name: string): Promise
   const normalizedName = name.trim().replace(/\s+/g, ' ').slice(0, 40);
   if (!normalizedName) {
     throw new Error('EMPTY_FOLDER_NAME');
+  }
+  if (isSystemFolderName(normalizedName)) {
+    throw new Error('SYSTEM_FOLDER_NAME');
   }
 
   await prisma.libraryFolder.create({
@@ -139,7 +165,7 @@ export const deleteLibraryFolder = async (userId: string, folderId: number): Pro
   await ensureDatabaseSchema();
   const defaultFolder = await ensureDefaultLibraryFolder(userId);
 
-  if (folderId === defaultFolder.id) {
+  if (folderId === defaultFolder.id || folderId === LIKED_LIBRARY_FOLDER_ID) {
     throw new Error('DEFAULT_FOLDER');
   }
 
@@ -198,6 +224,44 @@ export const reorderLibraryFolders = async (userId: string, folderIds: number[])
 export const listSavedWorks = async (userId: string, folderId?: number | null): Promise<SavedWorkItem[]> => {
   await ensureDatabaseSchema();
   await ensureDefaultLibraryFolder(userId);
+
+  if (folderId === LIKED_LIBRARY_FOLDER_ID) {
+    const items = await prisma.workLike.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        workId: true,
+        createdAt: true,
+        work: {
+          select: {
+            title: true,
+            category: true,
+            imageUrl: true,
+            imageWidth: true,
+            imageHeight: true,
+            author: {
+              select: {
+                username: true,
+                profile: {
+                  select: {
+                    nickname: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return items.map((item) => mapSavedWork({
+      workId: item.workId,
+      folderId: LIKED_LIBRARY_FOLDER_ID,
+      savedAt: item.createdAt,
+      work: item.work,
+    }));
+  }
+
   const items = await prisma.savedWork.findMany({
     where: {
       userId,

@@ -411,6 +411,8 @@ const getPopularScore = (work: WorkWithAuthor) => {
     + getRecencyScore(work.createdAt) * 12;
 };
 
+const seedViewerIds = Array.from({ length: 12 }, (_, index) => `seed-demo-viewer-${index + 1}`);
+
 const ensureSeedWorks = async () => {
   const author = await prisma.user.upsert({
     where: { username: 'Название_curator' },
@@ -430,6 +432,8 @@ const ensureSeedWorks = async () => {
       },
     },
   });
+
+  const seededWorkIds: number[] = [];
 
   for (const work of seedWorks) {
     const existing = await prisma.work.findFirst({
@@ -456,16 +460,82 @@ const ensureSeedWorks = async () => {
         where: { id: existing.id },
         data,
       });
+      seededWorkIds.push(existing.id);
       continue;
     }
 
-    await prisma.work.create({
+    const created = await prisma.work.create({
       data: {
         authorId: author.id,
         title: work.title,
         ...data,
       },
     });
+    seededWorkIds.push(created.id);
+  }
+
+  for (const [index, userId] of seedViewerIds.entries()) {
+    await prisma.user.upsert({
+      where: { id: userId },
+      update: {},
+      create: {
+        id: userId,
+        username: `demo_viewer_${index + 1}`,
+        email: `demo.viewer.${index + 1}@artside.local`,
+        passwordHash: '$2a$10$uXcfb3w58JrTuA4y9.PJdOD1p6NHHgG2hrVbp7X8Be4OZ26LvfFM.',
+        profile: {
+          create: {
+            nickname: `Demo Viewer ${index + 1}`,
+            location: 'ArtSide',
+            bio: 'Служебный демо-аккаунт для тестовой активности.',
+            avatarUrl: '',
+          },
+        },
+      },
+    });
+  }
+
+  for (const [workIndex, workId] of seededWorkIds.entries()) {
+    const weight = Math.max(1, seedViewerIds.length - workIndex);
+    const activeViewers = seedViewerIds.slice(0, weight);
+
+    for (const [viewerIndex, userId] of activeViewers.entries()) {
+      const existingView = await prisma.workView.findFirst({
+        where: {
+          userId,
+          workId,
+          viewerKey: 'seed-demo',
+        },
+        select: { id: true },
+      });
+
+      if (!existingView) {
+        await prisma.workView.create({
+          data: {
+            userId,
+            workId,
+            viewerKey: 'seed-demo',
+            viewedAt: new Date(Date.now() - (workIndex * 12 + viewerIndex) * 60 * 1000),
+          },
+        });
+      }
+
+      if (viewerIndex % 2 === 0) {
+        await prisma.workLike.upsert({
+          where: { userId_workId: { userId, workId } },
+          update: {},
+          create: { userId, workId },
+        });
+      }
+
+      if (viewerIndex % 3 === 0) {
+        await prisma.savedWork.upsert({
+          where: { userId_workId: { userId, workId } },
+          update: {},
+          create: { userId, workId },
+        });
+      }
+    }
   }
 };
 

@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { LIKED_LIBRARY_FOLDER_ID } from '@/lib/saved-work-types';
 import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
 
 type LibraryResponse = {
@@ -10,6 +11,8 @@ type LibraryResponse = {
   folders: LibraryFolderItem[];
   items: SavedWorkItem[];
 };
+
+const LIBRARY_FOLDER_ORDER_KEY = 'artside_library_folder_order';
 
 export default function LibraryPage() {
   const [folders, setFolders] = useState<LibraryFolderItem[]>([]);
@@ -19,12 +22,36 @@ export default function LibraryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
+  const [folderMessage, setFolderMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const activeFolder = useMemo(
     () => folders.find((folder) => folder.id === activeFolderId) ?? folders[0],
     [activeFolderId, folders]
   );
+  const isSystemFolderActive = Boolean(activeFolder?.system);
+
+  const applyStoredFolderOrder = (nextFolders: LibraryFolderItem[]) => {
+    if (typeof window === 'undefined') return nextFolders;
+
+    try {
+      const storedOrder = JSON.parse(window.localStorage.getItem(LIBRARY_FOLDER_ORDER_KEY) ?? '[]') as unknown;
+      if (!Array.isArray(storedOrder)) return nextFolders;
+
+      const order = storedOrder.filter((id): id is number => Number.isInteger(id));
+      if (order.length === 0) return nextFolders;
+
+      const folderById = new Map(nextFolders.map((folder) => [folder.id, folder]));
+      const orderedFolders = order
+        .map((id) => folderById.get(id))
+        .filter((folder): folder is LibraryFolderItem => Boolean(folder));
+      const missingFolders = nextFolders.filter((folder) => !order.includes(folder.id));
+
+      return [...orderedFolders, ...missingFolders];
+    } catch {
+      return nextFolders;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +73,7 @@ export default function LibraryPage() {
         return;
       }
 
-      const nextFolders = data.folders ?? [];
+      const nextFolders = applyStoredFolderOrder(data.folders ?? []);
       setFolders(nextFolders);
 
       if (!activeFolderId && nextFolders.length > 0) {
@@ -74,24 +101,31 @@ export default function LibraryPage() {
     event.preventDefault();
     if (isCreatingFolder) return;
 
+    const trimmedFolderName = folderName.trim();
+    if (!trimmedFolderName) {
+      setFolderMessage('Введите название папки.');
+      return;
+    }
+
     setIsCreatingFolder(true);
+    setFolderMessage(null);
     setMessage(null);
 
     const response = await fetch('/api/library/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: folderName }),
+      body: JSON.stringify({ name: trimmedFolderName }),
     });
     const data = (await response.json()) as { folders?: LibraryFolderItem[]; message?: string };
 
     if (!response.ok) {
-      setMessage(data.message ?? 'Не удалось создать папку.');
+      setFolderMessage(data.message ?? 'Не удалось создать папку.');
       setIsCreatingFolder(false);
       return;
     }
 
     const nextFolders = data.folders ?? [];
-    const createdFolder = nextFolders.find((folder) => folder.name.toLowerCase() === folderName.trim().toLowerCase());
+    const createdFolder = nextFolders.find((folder) => folder.name.toLowerCase() === trimmedFolderName.toLowerCase());
     setFolders(nextFolders);
     setFolderName('');
     setIsCreatingFolder(false);
@@ -99,8 +133,8 @@ export default function LibraryPage() {
   };
 
   const deleteFolder = async (folder: LibraryFolderItem) => {
-    if (folder.name === 'Избранное') {
-      setMessage('Папку «Избранное» нельзя удалить.');
+    if (folder.system || folder.name === 'Избранное') {
+      setMessage('Эту системную папку нельзя удалить.');
       return;
     }
 
@@ -124,17 +158,20 @@ export default function LibraryPage() {
   };
 
   const persistFolderOrder = async (nextFolders: LibraryFolderItem[]) => {
+    window.localStorage.setItem(LIBRARY_FOLDER_ORDER_KEY, JSON.stringify(nextFolders.map((folder) => folder.id)));
+
+    const orderedUserFolderIds = nextFolders.filter((folder) => !folder.system).map((folder) => folder.id);
     const response = await fetch('/api/library/folders', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderIds: nextFolders.map((folder) => folder.id) }),
+      body: JSON.stringify({ folderIds: orderedUserFolderIds }),
     });
     const data = (await response.json()) as { folders?: LibraryFolderItem[]; message?: string };
     if (!response.ok) {
       setMessage(data.message ?? 'Не удалось сохранить порядок папок.');
       return;
     }
-    setFolders(data.folders ?? nextFolders);
+    setFolders(applyStoredFolderOrder(data.folders ?? nextFolders));
   };
 
   const moveFolder = (targetFolderId: number) => {
@@ -190,7 +227,10 @@ export default function LibraryPage() {
         <form className="library-folder-form" onSubmit={createFolder}>
           <input
             value={folderName}
-            onChange={(event) => setFolderName(event.target.value)}
+            onChange={(event) => {
+              setFolderName(event.target.value);
+              if (folderMessage) setFolderMessage(null);
+            }}
             placeholder="Название папки"
             maxLength={40}
           />
@@ -198,6 +238,7 @@ export default function LibraryPage() {
             <span aria-hidden="true">+</span>
             Создать папку
           </button>
+          {folderMessage && <p className="library-form-message">{folderMessage}</p>}
         </form>
 
         <div className="library-folders">
@@ -205,7 +246,7 @@ export default function LibraryPage() {
             <div
               key={folder.id}
               className={`library-folder-item ${folder.id === activeFolder?.id ? 'library-folder-active' : ''} ${folder.id === draggedFolderId ? 'library-folder-dragging' : ''}`}
-              draggable
+              draggable={folders.length > 1}
               onDragStart={() => setDraggedFolderId(folder.id)}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -222,7 +263,7 @@ export default function LibraryPage() {
                 <strong>{folder.name}</strong>
                 <small>{folder.count} работ</small>
               </button>
-              {folder.name !== 'Избранное' && (
+              {!folder.system && folder.name !== 'Избранное' && (
                 <button
                   type="button"
                   className="library-folder-delete"
@@ -278,15 +319,17 @@ export default function LibraryPage() {
                     <span>{item.author}</span>
                   </div>
                 </Link>
-                <select
-                  value={item.folderId ?? activeFolder?.id ?? ''}
-                  onChange={(event) => void moveItemToFolder(item.id, Number(event.target.value))}
-                  aria-label="Переместить работу в папку"
-                >
-                  {folders.map((folder) => (
-                    <option key={folder.id} value={folder.id}>{folder.name}</option>
-                  ))}
-                </select>
+                {!isSystemFolderActive && (
+                  <select
+                    value={item.folderId ?? activeFolder?.id ?? ''}
+                    onChange={(event) => void moveItemToFolder(item.id, Number(event.target.value))}
+                    aria-label="Переместить работу в папку"
+                  >
+                    {folders.filter((folder) => folder.id !== LIKED_LIBRARY_FOLDER_ID).map((folder) => (
+                      <option key={folder.id} value={folder.id}>{folder.name}</option>
+                    ))}
+                  </select>
+                )}
               </article>
             ))}
           </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { HomeFeedResponse, WorkSummary } from '@/lib/home-feed';
 import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
 
@@ -30,7 +30,6 @@ export default function Home() {
   const [popularCanScrollRight, setPopularCanScrollRight] = useState(false);
 
   const popularRef = useRef<HTMLDivElement | null>(null);
-  const router = useRouter();
 
   const applySavedItems = (items: SavedWorkItem[]) => {
     setSavedWorkIds(items.map((item) => item.id));
@@ -268,10 +267,6 @@ export default function Home() {
     window.setTimeout(updatePopularScrollState, 260);
   };
 
-  const openWork = (id: number) => {
-    router.push(`/work/${id}`);
-  };
-
   const renderSaveButton = (item: WorkSummary) => {
     const isSaved = savedWorkIds.includes(item.id);
     const isPending = pendingSavedIds.includes(item.id);
@@ -379,21 +374,19 @@ export default function Home() {
                 ))
               )}
               {popularItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="popular-card snap-start cursor-pointer"
-                  onClick={() => openWork(item.id)}
-                >
+                <div key={item.id} className="popular-card snap-start">
                   <div className="popular-thumb">
-                    <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                    <Link href={`/work/${item.id}`} aria-label={`Открыть работу ${item.title}`}>
+                      <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                    </Link>
                     <div className="popular-overlay">
                       {renderSaveButton(item)}
                     </div>
                   </div>
-                  <div className="popular-meta">
+                  <Link href={`/work/${item.id}`} className="popular-meta">
                     <span className="popular-title">{item.title}</span>
                     <span className="popular-author">{item.author}</span>
-                  </div>
+                  </Link>
                 </div>
               ))}
             </div>
@@ -422,21 +415,19 @@ export default function Home() {
               <p className="text-sm text-white/70">В выбранных категориях пока нет работ.</p>
             )}
             {recommendedItems.map((item) => (
-              <article
-                key={item.id}
-                className="recommend-card cursor-pointer"
-                onClick={() => openWork(item.id)}
-              >
+              <article key={item.id} className="recommend-card">
                 <div className="recommend-card-media">
-                  <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                  <Link href={`/work/${item.id}`} aria-label={`Открыть работу ${item.title}`}>
+                    <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                  </Link>
                   <div className="recommend-card-overlay">
                     {renderSaveButton(item)}
                   </div>
                 </div>
-                <div className="recommend-card-info">
+                <Link href={`/work/${item.id}`} className="recommend-card-info">
                   <p>{item.title}</p>
                   <span>{item.category}</span>
-                </div>
+                </Link>
               </article>
             ))}
           </div>
@@ -495,7 +486,7 @@ export default function Home() {
               ) : filteredFolders.length === 0 ? (
                 <p className="collection-empty">Папок пока нет. Создайте новую выше.</p>
               ) : (
-                filteredFolders.map((folder) => (
+                filteredFolders.filter((folder) => !folder.system).map((folder) => (
                   <button
                     key={folder.id}
                     type="button"

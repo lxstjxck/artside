@@ -5,7 +5,7 @@ import { getSessionUser } from '@/lib/session-user';
 import { uploadWorkImage } from '@/lib/work-image-storage';
 import { createWork } from '@/lib/work-store';
 
-const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ALLOWED_TYPES = new Map([
   ['image/jpeg', 'jpg'],
   ['image/png', 'png'],
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   }
 
   if (image.size <= 0 || image.size > MAX_IMAGE_SIZE) {
-    return NextResponse.json({ message: 'Размер изображения должен быть до 8 МБ.' }, { status: 400 });
+    return NextResponse.json({ message: 'Размер изображения должен быть до 20 МБ.' }, { status: 400 });
   }
 
   const buffer = Buffer.from(await image.arrayBuffer());
