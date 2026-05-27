@@ -1,0 +1,1 @@
+ALTER TABLE "Profile" ADD COLUMN "socialLinks" TEXT NOT NULL DEFAULT '{}';

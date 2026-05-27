@@ -15,6 +15,9 @@ const mapSavedWork = (item: {
     imageUrl: string;
     imageWidth: number;
     imageHeight: number;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
     author: {
       username: string;
       profile: {
@@ -28,9 +31,9 @@ const mapSavedWork = (item: {
   savedAt: item.savedAt.toISOString(),
   title: item.work?.title,
   category: item.work?.category,
-  imageUrl: item.work?.imageUrl,
-  imageWidth: item.work?.imageWidth,
-  imageHeight: item.work?.imageHeight,
+  imageUrl: item.work?.thumbnailUrl || item.work?.imageUrl,
+  imageWidth: item.work?.thumbnailWidth ?? item.work?.imageWidth,
+  imageHeight: item.work?.thumbnailHeight ?? item.work?.imageHeight,
   author: item.work ? item.work.author.profile?.nickname || item.work.author.username : undefined,
 });
 
@@ -239,6 +242,9 @@ export const listSavedWorks = async (userId: string, folderId?: number | null): 
             imageUrl: true,
             imageWidth: true,
             imageHeight: true,
+            thumbnailUrl: true,
+            thumbnailWidth: true,
+            thumbnailHeight: true,
             author: {
               select: {
                 username: true,
@@ -279,6 +285,9 @@ export const listSavedWorks = async (userId: string, folderId?: number | null): 
           imageUrl: true,
           imageWidth: true,
           imageHeight: true,
+          thumbnailUrl: true,
+          thumbnailWidth: true,
+          thumbnailHeight: true,
           author: {
             select: {
               username: true,

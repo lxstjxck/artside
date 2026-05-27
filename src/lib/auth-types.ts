@@ -10,6 +10,21 @@ export type UserProfile = {
   bio: string;
   avatarUrl: string;
   avatarKey?: string | null;
+  professionalSkills: string[];
+  professionalSoftware: string[];
+  publicEmail: string;
+  showPublicEmail: boolean;
+  hiringTypes: string[];
+  socialLinks: {
+    portfolio?: string;
+    website?: string;
+    telegram?: string;
+    vk?: string;
+    dzen?: string;
+    rutube?: string;
+    boosty?: string;
+  };
+  publishReady: boolean;
   notifyLikes: boolean;
   notifyComments: boolean;
   emailNotifications: boolean;

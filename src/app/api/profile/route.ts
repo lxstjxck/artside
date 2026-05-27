@@ -5,6 +5,7 @@ import { getSessionUser } from '@/lib/session-user';
 import { deleteWorkImage, uploadWorkImage } from '@/lib/work-image-storage';
 import { findUserById, mapStoredUserToPublic, updateUserProfile } from '@/lib/user-store';
 import { listUserWorks } from '@/lib/work-store';
+import type { UserProfile } from '@/lib/auth-types';
 
 type ProfilePatchBody = {
   nickname?: string;
@@ -12,15 +13,62 @@ type ProfilePatchBody = {
   bio?: string;
   avatarUrl?: string;
   avatarKey?: string | null;
+  professionalSkills?: string[];
+  professionalSoftware?: string[];
+  publicEmail?: string;
+  showPublicEmail?: boolean;
+  hiringTypes?: string[];
+  socialLinks?: UserProfile['socialLinks'];
+  publishReady?: boolean;
 };
 
 const trimValue = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_AVATAR_SIZE = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Map([
   ['image/jpeg', 'jpg'],
   ['image/png', 'png'],
   ['image/webp', 'webp'],
 ]);
+
+const parseStringList = (value: FormDataEntryValue | null) => {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()).slice(0, 12)
+      : [];
+  } catch {
+    return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 12);
+  }
+};
+
+const normalizeStringList = (value: unknown) => (
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()).slice(0, 12)
+    : []
+);
+
+const URL_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+const SOCIAL_KEYS = ['portfolio', 'website', 'telegram', 'vk', 'dzen', 'rutube', 'boosty'] as const;
+
+const normalizeSocialLinks = (value: unknown): UserProfile['socialLinks'] => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    SOCIAL_KEYS
+      .map((key) => [key, trimValue((value as Record<string, unknown>)[key])] as const)
+      .filter(([, link]) => link.length > 0),
+  );
+};
+
+const parseSocialLinks = (value: FormDataEntryValue | null) => {
+  if (typeof value !== 'string') return {};
+  try {
+    return normalizeSocialLinks(JSON.parse(value) as unknown);
+  } catch {
+    return {};
+  }
+};
 
 export async function GET() {
   const sessionUser = await getSessionUser();
@@ -69,6 +117,13 @@ export async function PATCH(request: Request) {
       location: trimValue(formData.get('location')),
       bio: trimValue(formData.get('bio')),
       avatarUrl: trimValue(formData.get('avatarUrl')),
+      ...(formData.has('professionalSkills') ? { professionalSkills: parseStringList(formData.get('professionalSkills')) } : {}),
+      ...(formData.has('professionalSoftware') ? { professionalSoftware: parseStringList(formData.get('professionalSoftware')) } : {}),
+      ...(formData.has('publicEmail') ? { publicEmail: trimValue(formData.get('publicEmail')) } : {}),
+      ...(formData.has('showPublicEmail') ? { showPublicEmail: formData.get('showPublicEmail') !== 'false' } : {}),
+      ...(formData.has('hiringTypes') ? { hiringTypes: parseStringList(formData.get('hiringTypes')) } : {}),
+      ...(formData.has('socialLinks') ? { socialLinks: parseSocialLinks(formData.get('socialLinks')) } : {}),
+      ...(formData.has('publishReady') ? { publishReady: formData.get('publishReady') === 'true' } : {}),
     };
     const avatar = formData.get('avatar');
     avatarFile = avatar instanceof File && avatar.size > 0 ? avatar : null;
@@ -103,6 +158,22 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ message: 'Пользователь не найден.' }, { status: 404 });
   }
 
+  const nextSkills = body.professionalSkills === undefined ? existing.profile.professionalSkills : normalizeStringList(body.professionalSkills);
+  const nextSoftware = body.professionalSoftware === undefined ? existing.profile.professionalSoftware : normalizeStringList(body.professionalSoftware);
+  const nextPublicEmail = body.publicEmail === undefined ? existing.profile.publicEmail : trimValue(body.publicEmail);
+  const nextShowPublicEmail = body.showPublicEmail ?? existing.profile.showPublicEmail;
+  const nextHiringTypes = body.hiringTypes === undefined ? existing.profile.hiringTypes : normalizeStringList(body.hiringTypes);
+  const nextSocialLinks = body.socialLinks === undefined ? existing.profile.socialLinks : normalizeSocialLinks(body.socialLinks);
+  const nextPublishReady = body.publishReady ?? existing.profile.publishReady;
+
+  if (nextPublicEmail && !EMAIL_PATTERN.test(nextPublicEmail)) {
+    return NextResponse.json({ message: 'Введите корректный публичный email.' }, { status: 400 });
+  }
+
+  if (Object.values(nextSocialLinks).some((link) => !URL_PATTERN.test(link))) {
+    return NextResponse.json({ message: 'Введите ссылки в формате https://example.com.' }, { status: 400 });
+  }
+
   if (avatarFile) {
     const extension = ALLOWED_IMAGE_TYPES.get(avatarFile.type);
     if (!extension) {
@@ -133,6 +204,13 @@ export async function PATCH(request: Request) {
     bio: nextBio || 'Расскажите о себе в профиле.',
     avatarUrl: nextAvatarUrl,
     avatarKey: nextAvatarKey,
+    professionalSkills: nextSkills,
+    professionalSoftware: nextSoftware,
+    publicEmail: nextPublicEmail,
+    showPublicEmail: nextShowPublicEmail,
+    hiringTypes: nextHiringTypes,
+    socialLinks: nextSocialLinks,
+    publishReady: nextPublishReady,
   });
 
   if (!updated) {

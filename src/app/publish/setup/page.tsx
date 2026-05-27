@@ -46,12 +46,13 @@ type SuggestFieldProps = {
   placeholder: string;
   suggestions: string[];
   selected: string[];
+  required?: boolean;
   onValueChange: (value: string) => void;
   onAdd: (value: string) => void;
   onRemove: (value: string) => void;
 };
 
-function SuggestField({ label, value, placeholder, suggestions, selected, onValueChange, onAdd, onRemove }: SuggestFieldProps) {
+function SuggestField({ label, value, placeholder, suggestions, selected, required = false, onValueChange, onAdd, onRemove }: SuggestFieldProps) {
   const matches = useMemo(() => {
     const query = value.trim().toLowerCase();
     if (query.length < 2) return [];
@@ -67,7 +68,7 @@ function SuggestField({ label, value, placeholder, suggestions, selected, onValu
 
   return (
     <div className="publish-setup-field">
-      <label>{label}</label>
+      <label>{label}{required && <span className="publish-required-mark"> *</span>}</label>
       {selected.length > 0 && (
         <div className="settings-tag-list">
           {selected.map((item) => (
@@ -123,6 +124,7 @@ export default function PublishSetupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [acceptedRules, setAcceptedRules] = useState(false);
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -141,6 +143,15 @@ export default function PublishSetupPage() {
         setPublicEmail(data.user.email);
         setLocation(data.profile.location ?? '');
         setSummary(data.profile.bio ?? '');
+        setSkills(data.profile.professionalSkills ?? []);
+        setSoftware(data.profile.professionalSoftware ?? []);
+        setShowEmail(data.profile.showPublicEmail ?? true);
+        setPublicEmail(data.profile.publicEmail || data.user.email);
+        setHiring({
+          fullTime: data.profile.hiringTypes?.includes('fullTime') ?? false,
+          contract: data.profile.hiringTypes?.includes('contract') ?? false,
+          freelance: data.profile.hiringTypes?.includes('freelance') ?? false,
+        });
       } catch (error) {
         if ((error as Error).name !== 'AbortError') {
           setMessage('Не удалось загрузить данные профиля.');
@@ -182,13 +193,33 @@ export default function PublishSetupPage() {
       return;
     }
 
+    if (!location.trim()) {
+      setMessage('Укажите город и страну.');
+      return;
+    }
+
     if (summary.trim().length < 20) {
       setMessage('Добавьте профессиональное описание минимум на 20 символов.');
       return;
     }
 
-    if (showEmail && !publicEmail.trim()) {
-      setMessage('Укажите публичную почту или выберите вариант не показывать почту.');
+    if (skills.length === 0) {
+      setMessage('Добавьте хотя бы один навык.');
+      return;
+    }
+
+    if (software.length === 0) {
+      setMessage('Добавьте хотя бы одну используемую программу.');
+      return;
+    }
+
+    if (showEmail && !emailPattern.test(publicEmail.trim())) {
+      setMessage('Укажите корректную публичную почту или выберите вариант не показывать почту.');
+      return;
+    }
+
+    if (!hiring.fullTime && !hiring.contract && !hiring.freelance) {
+      setMessage('Выберите хотя бы один формат работы.');
       return;
     }
 
@@ -199,24 +230,26 @@ export default function PublishSetupPage() {
       formData.set('location', location.trim() || profile.location || 'Не указано');
       formData.set('bio', summary.trim());
       formData.set('avatarUrl', profile.avatarUrl ?? '');
+      formData.set('professionalSkills', JSON.stringify(skills));
+      formData.set('professionalSoftware', JSON.stringify(software));
+      formData.set('publicEmail', showEmail ? publicEmail.trim() : '');
+      formData.set('showPublicEmail', String(showEmail));
+      formData.set('hiringTypes', JSON.stringify(Object.entries(hiring).filter(([, enabled]) => enabled).map(([key]) => key)));
+      formData.set('publishReady', 'true');
 
-      await fetch('/api/profile', {
+      const response = await fetch('/api/profile', {
         method: 'PATCH',
         body: formData,
       });
 
-      window.localStorage.setItem('artside_publish_ready', '1');
-      window.localStorage.setItem('artside_publish_profile', JSON.stringify({
-        summary: summary.trim(),
-        skills,
-        software,
-        publicEmail: showEmail ? publicEmail.trim() : '',
-        location: location.trim(),
-        hiring,
-      }));
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? 'Не удалось сохранить профиль для публикации.');
+      }
+
       setShowRules(true);
-    } catch {
-      setMessage('Не удалось сохранить профиль для публикации.');
+    } catch (error) {
+      setMessage((error as Error).message || 'Не удалось сохранить профиль для публикации.');
     } finally {
       setIsSaving(false);
     }
@@ -242,7 +275,7 @@ export default function PublishSetupPage() {
         <section className="publish-setup-section">
           <h2>Имя пользователя</h2>
           <label>
-            Публичный адрес профиля
+            Публичный адрес профиля<span className="publish-required-mark"> *</span>
             <input value={user?.username ?? ''} readOnly />
           </label>
           <div className="publish-setup-checks">
@@ -257,9 +290,9 @@ export default function PublishSetupPage() {
           <h2>Местоположение</h2>
           <p>Город будет отображаться в публичном профиле. Можно заполнить вручную или определить через браузер.</p>
           <label>
-            Город и страна
+            Город и страна<span className="publish-required-mark"> *</span>
             <span className="publish-location-row">
-              <input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={80} placeholder="Например: Москва, Россия" />
+              <input required value={location} onChange={(event) => setLocation(event.target.value)} maxLength={80} placeholder="Например: Москва, Россия" />
               <button type="button" onClick={() => void fillBrowserLocation()} disabled={isDetectingLocation || isSaving}>
                 {isDetectingLocation ? 'Определяем...' : 'Определить город'}
               </button>
@@ -270,8 +303,10 @@ export default function PublishSetupPage() {
         <section className="publish-setup-section">
           <h2>Профессиональное описание</h2>
           <label>
-            Краткое резюме
+            Краткое резюме<span className="publish-required-mark"> *</span>
             <textarea
+              required
+              minLength={20}
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="Опишите ваши навыки, опыт и направление в визуальном искусстве."
@@ -287,6 +322,7 @@ export default function PublishSetupPage() {
             placeholder="Например: концепт-арт, 3D-моделирование, UI/UX"
             suggestions={skillSuggestions}
             selected={skills}
+            required
             onValueChange={setSkillInput}
             onAdd={addSkill}
             onRemove={(value) => setSkills((current) => current.filter((item) => item !== value))}
@@ -301,6 +337,7 @@ export default function PublishSetupPage() {
             placeholder="Например: Photoshop, Blender, Figma"
             suggestions={softwareSuggestions}
             selected={software}
+            required
             onValueChange={setSoftwareInput}
             onAdd={addSoftware}
             onRemove={(value) => setSoftware((current) => current.filter((item) => item !== value))}
@@ -316,8 +353,8 @@ export default function PublishSetupPage() {
           </label>
           {showEmail && (
             <label>
-              Email
-              <input value={publicEmail} onChange={(event) => setPublicEmail(event.target.value)} placeholder="email@example.com" />
+              Email<span className="publish-required-mark"> *</span>
+              <input required={showEmail} type="email" value={publicEmail} onChange={(event) => setPublicEmail(event.target.value)} placeholder="email@example.com" />
             </label>
           )}
           <label className="publish-radio-row">

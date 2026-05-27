@@ -20,10 +20,14 @@ export async function GET(_: Request, { params }: RouteProps) {
   const sessionUser = await getSessionUser();
   const isOwner = sessionUser?.id === profileUser.id;
   const works = await listUserWorks(profileUser.id, sessionUser?.id);
+  const profile = {
+    ...profileUser.profile,
+    publicEmail: isOwner || profileUser.profile.showPublicEmail ? profileUser.profile.publicEmail : '',
+  };
 
   return NextResponse.json({
     user: mapStoredUserToPublic(profileUser),
-    profile: profileUser.profile,
+    profile,
     works,
     isOwner,
     authenticated: Boolean(sessionUser),

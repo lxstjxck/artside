@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AuthModal from './AuthModal';
@@ -20,8 +20,22 @@ type SearchItem = {
   title: string;
   category: string;
   author: string;
+  authorUsername: string;
   imageUrl: string;
 };
+
+type SearchFilters = {
+  categories: Array<{ name: string; count: number }>;
+  tags: Array<{ name: string; count: number }>;
+  authors: Array<{ username: string; name: string; count: number }>;
+};
+
+type SearchResponse = {
+  items?: SearchItem[];
+  filters?: SearchFilters;
+};
+
+const RECENT_SEARCHES_KEY = 'artside_recent_searches';
 
 export default function Header() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -35,6 +49,9 @@ export default function Header() {
   const [notifications, setNotifications] = useState<HeaderNotification[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchItems, setSearchItems] = useState<SearchItem[]>([]);
+  const [discoveryItems, setDiscoveryItems] = useState<SearchItem[]>([]);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({ categories: [], tags: [], authors: [] });
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -46,6 +63,7 @@ export default function Header() {
   const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const moreMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const isProfilePage = pathname.startsWith('/profile/');
   const isLibraryPage = pathname.startsWith('/library');
@@ -145,6 +163,20 @@ export default function Header() {
   }, [isMoreMenuOpen]);
 
   useEffect(() => {
+    if (!isSearchOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!searchContainerRef.current?.contains(target)) {
+        setIsSearchOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isSearchOpen]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     const loadSession = async () => {
@@ -223,10 +255,18 @@ export default function Header() {
   }, []);
 
   useEffect(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(RECENT_SEARCHES_KEY) ?? '[]') as unknown;
+      setRecentSearches(Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string').slice(0, 8) : []);
+    } catch {
+      setRecentSearches([]);
+    }
+  }, []);
+
+  useEffect(() => {
     const query = searchQuery.trim();
     if (query.length < 2) {
       setSearchItems([]);
-      setIsSearchOpen(false);
       return;
     }
 
@@ -238,8 +278,9 @@ export default function Header() {
           cache: 'no-store',
         });
         if (!response.ok) return;
-        const data = (await response.json()) as { items?: SearchItem[] };
+        const data = (await response.json()) as SearchResponse;
         setSearchItems(data.items ?? []);
+        setSearchFilters(data.filters ?? { categories: [], tags: [], authors: [] });
         setIsSearchOpen(true);
       };
 
@@ -251,6 +292,68 @@ export default function Header() {
       controller.abort();
     };
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!isSearchOpen || searchQuery.trim().length >= 2 || discoveryItems.length > 0) return;
+
+    const controller = new AbortController();
+    const loadDiscovery = async () => {
+      const response = await fetch('/api/search?sort=popular', {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as SearchResponse;
+      setDiscoveryItems(data.items ?? []);
+      setSearchFilters(data.filters ?? { categories: [], tags: [], authors: [] });
+    };
+
+    void loadDiscovery();
+    return () => controller.abort();
+  }, [discoveryItems.length, isSearchOpen, searchQuery]);
+
+  const saveRecentSearch = (value: string) => {
+    const query = value.trim();
+    if (query.length < 2) return;
+    const next = [query, ...recentSearches.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 8);
+    setRecentSearches(next);
+    try {
+      window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+    } catch {
+      // Local storage can be unavailable in restricted browser modes.
+    }
+  };
+
+  const runSearchSuggestion = (value: string) => {
+    const query = value.trim();
+    if (query.length < 2) return;
+    saveRecentSearch(query);
+    setSearchQuery(query);
+    setIsSearchOpen(false);
+
+    const href = `/?q=${encodeURIComponent(query)}`;
+    if (window.location.pathname === '/') {
+      window.history.pushState(null, '', href);
+      window.dispatchEvent(new Event('artside:search-change'));
+      return;
+    }
+
+    window.location.href = href;
+  };
+
+  const searchSuggestions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (query.length < 2) return [];
+    const raw = [
+      ...searchItems.map((item) => item.title),
+      ...searchItems.map((item) => item.category),
+      ...searchItems.map((item) => item.author),
+      ...searchFilters.tags.map((item) => item.name),
+      ...searchFilters.categories.map((item) => item.name),
+      ...searchFilters.authors.map((item) => item.name),
+    ];
+    return Array.from(new Set(raw.filter((item) => item.toLowerCase().includes(query)))).slice(0, 10);
+  }, [searchFilters, searchItems, searchQuery]);
 
   return (
     <>
@@ -301,7 +404,7 @@ export default function Header() {
           </section>
         </div>
       )}
-      <header className={`w-full ${(isProfilePage || isLibraryPage || isSettingsPage || isPublishPage) ? 'border-b border-white/15 bg-[#111111]' : ''}`}>
+      <header className={`site-header w-full ${(isProfilePage || isLibraryPage || isSettingsPage || isPublishPage) ? 'border-b border-white/15' : ''}`}>
         <div className="flex w-full items-center gap-6 px-10 py-5">
           <div className="flex items-center gap-8">
             <Link href="/" className="text-2xl font-bold tracking-tight text-white">
@@ -310,7 +413,7 @@ export default function Header() {
           </div>
 
           <div className="flex-1">
-            <div className="relative">
+            <div ref={searchContainerRef} className="relative">
               <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-black">
                 <svg
                   width="16"
@@ -331,33 +434,105 @@ export default function Header() {
                 placeholder="Поиск..."
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    runSearchSuggestion(searchQuery);
+                  }
+                }}
                 onFocus={() => {
-                  if (searchItems.length > 0) setIsSearchOpen(true);
+                  setIsSearchOpen(true);
                 }}
                 className="w-full rounded-full bg-white/90 px-10 py-2 text-sm text-black placeholder:text-grey outline-none shadow-soft font-semibold border-2"
               />
               {isSearchOpen && (
                 <div className="search-results-panel">
-                  {searchItems.length === 0 ? (
+                  {searchQuery.trim().length < 2 ? (
+                    <div className="search-discovery">
+                      {recentSearches.length > 0 && (
+                        <section>
+                          <h2>Недавние поисковые запросы</h2>
+                          <div className="search-discovery-grid">
+                            {recentSearches.map((item, index) => {
+                              const thumb = discoveryItems[index % Math.max(1, discoveryItems.length)];
+                              return (
+                                <button key={item} type="button" className="search-discovery-card" onClick={() => runSearchSuggestion(item)}>
+                                  {thumb && <span style={{ backgroundImage: `url(${thumb.imageUrl})` }} />}
+                                  <strong>{item}</strong>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
+                      <section>
+                        <h2>Идеи для вас</h2>
+                        <div className="search-discovery-grid">
+                          {[...searchFilters.categories.slice(0, 4).map((item) => item.name), ...searchFilters.tags.slice(0, 4).map((item) => item.name)].map((item, index) => {
+                            const thumb = discoveryItems[(index + 2) % Math.max(1, discoveryItems.length)];
+                            return (
+                              <button key={item} type="button" className="search-discovery-card" onClick={() => runSearchSuggestion(item)}>
+                                {thumb && <span style={{ backgroundImage: `url(${thumb.imageUrl})` }} />}
+                                <strong>{item}</strong>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                      {discoveryItems.length > 0 && (
+                        <section>
+                          <h2>Популярно</h2>
+                          <div className="search-popular-row">
+                            {discoveryItems.slice(0, 6).map((item) => (
+                              <Link key={item.id} href={`/work/${item.id}`} onClick={() => setIsSearchOpen(false)}>
+                                <span style={{ backgroundImage: `url(${item.imageUrl})` }} />
+                                <strong>{item.title}</strong>
+                              </Link>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+                    </div>
+                  ) : searchSuggestions.length === 0 && searchItems.length === 0 ? (
                     <p className="search-results-empty">Ничего не найдено</p>
                   ) : (
-                    searchItems.map((item) => (
-                      <Link
-                        key={item.id}
-                        href={`/work/${item.id}`}
-                        className="search-result-item"
-                        onClick={() => {
-                          setIsSearchOpen(false);
-                          setSearchQuery('');
-                        }}
-                      >
-                        <span className="search-result-thumb" style={{ backgroundImage: `url(${item.imageUrl})` }} />
-                        <span>
-                          <strong>{item.title}</strong>
-                          <small>{item.category} · {item.author}</small>
-                        </span>
-                      </Link>
-                    ))
+                    <div className="search-suggest-panel">
+                      <div className="search-query-suggestions">
+                        {searchSuggestions.map((item) => (
+                          <button key={item} type="button" onClick={() => runSearchSuggestion(item)}>
+                            <span aria-hidden="true">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="11" cy="11" r="7" />
+                                <path d="m20 20-3.5-3.5" />
+                              </svg>
+                            </span>
+                            {item}
+                          </button>
+                        ))}
+                      </div>
+                      {searchItems.length > 0 && (
+                        <div className="search-result-grid-menu">
+                          {searchItems.slice(0, 8).map((item) => (
+                            <Link
+                              key={item.id}
+                              href={`/work/${item.id}`}
+                              className="search-result-item"
+                              onClick={() => {
+                                saveRecentSearch(searchQuery);
+                                setIsSearchOpen(false);
+                                setSearchQuery('');
+                              }}
+                            >
+                              <span className="search-result-thumb" style={{ backgroundImage: `url(${item.imageUrl})` }} />
+                              <span>
+                                <strong>{item.title}</strong>
+                                <small>{item.category} · {item.author}</small>
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

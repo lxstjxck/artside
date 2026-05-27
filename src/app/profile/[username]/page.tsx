@@ -19,11 +19,46 @@ type ProfileApiResponse = {
   authenticated: boolean;
 };
 
+type WorkStatusFilter = 'all' | WorkSummary['status'];
+
+const workStatusFilters: Array<{ id: WorkStatusFilter; label: string }> = [
+  { id: 'all', label: 'Все' },
+  { id: 'published', label: 'Опубликованные' },
+  { id: 'pending', label: 'На проверке' },
+  { id: 'draft', label: 'Черновики' },
+  { id: 'rejected', label: 'Отклоненные' },
+];
+
+const workStatusLabels: Record<WorkSummary['status'], string> = {
+  draft: 'Черновик',
+  pending: 'На проверке',
+  published: 'Опубликовано',
+  rejected: 'Отклонено',
+};
+
 const emptyWorkForm = {
   title: '',
   category: 'Графический дизайн',
   description: '',
   tags: '',
+};
+
+const hiringLabels: Record<string, string> = {
+  fullTime: 'Полная занятость',
+  contract: 'Контракт',
+  freelance: 'Фриланс',
+  remote: 'Удалённо',
+  relocation: 'Переезд',
+};
+
+const socialLabels: Record<string, string> = {
+  portfolio: 'Портфолио',
+  website: 'Сайт',
+  telegram: 'Telegram',
+  vk: 'VK',
+  dzen: 'Дзен',
+  rutube: 'Rutube',
+  boosty: 'Boosty',
 };
 
 export default function ProfilePage({ params }: ProfilePageProps) {
@@ -33,6 +68,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [works, setWorks] = useState<WorkSummary[]>([]);
   const [isOwner, setIsOwner] = useState(false);
+  const [workStatusFilter, setWorkStatusFilter] = useState<WorkStatusFilter>('all');
 
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -100,8 +136,11 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     return () => URL.revokeObjectURL(url);
   }, [workImage]);
 
-  const featuredWorks = works.filter((work) => work.featured).slice(0, 4);
-  const publishedWorks = works.filter((work) => !work.featured);
+  const visibleWorks = isOwner
+    ? works.filter((work) => workStatusFilter === 'all' || work.status === workStatusFilter)
+    : works.filter((work) => work.status === 'published');
+  const featuredWorks = visibleWorks.filter((work) => work.featured).slice(0, 4);
+  const publishedWorks = visibleWorks.filter((work) => !work.featured);
   const categorySections = Array.from(new Set(publishedWorks.map((work) => work.category))).map((category) => ({
     category,
     works: publishedWorks.filter((work) => work.category === category),
@@ -126,17 +165,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   };
 
   const openEditWorkModal = (work: WorkSummary) => {
-    setEditingWork(work);
-    setWorkForm({
-      title: work.title,
-      category: work.category,
-      description: work.description,
-      tags: work.tags.join(', '),
-    });
-    setWorkImage(null);
-    setWorkImagePreview(null);
-    setPublishMessage(null);
-    setIsPublishModalOpen(true);
+    window.location.href = `/publish?edit=${work.id}`;
   };
 
   const submitWork = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -220,6 +249,45 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     )));
   };
 
+  const publishDraftWork = async (work: WorkSummary) => {
+    const formData = new FormData();
+    formData.set('title', work.title);
+    formData.set('category', work.category);
+    formData.set('description', work.description);
+    formData.set('tags', work.tags.join(', '));
+    formData.set('status', 'published');
+
+    const response = await fetch(`/api/works/${work.id}`, {
+      method: 'PATCH',
+      body: formData,
+    });
+    const data = (await response.json().catch(() => ({}))) as { message?: string; work?: WorkSummary };
+    if (!response.ok || !data.work) {
+      setProfileMessage(data.message ?? 'Не удалось опубликовать черновик.');
+      return;
+    }
+
+    setWorks((current) => current.map((item) => (item.id === work.id ? data.work! : item)));
+    setProfileMessage('Работа отправлена на модерацию.');
+  };
+
+  const moderateOwnWork = async (work: WorkSummary) => {
+    const response = await fetch(`/api/works/${work.id}/moderate`, { method: 'POST' });
+    const data = (await response.json().catch(() => ({}))) as {
+      message?: string;
+      status?: WorkSummary['status'];
+      issues?: Array<{ message: string }>;
+    };
+    if (!response.ok || !data.status) {
+      setProfileMessage(data.message ?? 'Не удалось выполнить проверку работы.');
+      return;
+    }
+
+    setWorks((current) => current.map((item) => (item.id === work.id ? { ...item, status: data.status! } : item)));
+    const issueText = data.issues?.map((issue) => issue.message).join(' ');
+    setProfileMessage(issueText ? `${data.message} ${issueText}` : data.message ?? 'Проверка завершена.');
+  };
+
   if (isPageLoading) {
     return (
       <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-8 lg:px-8">
@@ -235,6 +303,17 @@ export default function ProfilePage({ params }: ProfilePageProps) {
       </main>
     );
   }
+
+  const professionalSkills = profile.professionalSkills.filter(Boolean);
+  const professionalSoftware = profile.professionalSoftware.filter(Boolean);
+  const hiringTypes = profile.hiringTypes.filter(Boolean);
+  const socialLinks = Object.entries(profile.socialLinks ?? {}).filter(([key, url]) => Boolean(url) && Boolean(socialLabels[key]));
+  const visiblePublicEmail = profile.showPublicEmail && profile.publicEmail.trim() ? profile.publicEmail.trim() : '';
+  const hasProfessionalProfile = professionalSkills.length > 0
+    || professionalSoftware.length > 0
+    || hiringTypes.length > 0
+    || Boolean(visiblePublicEmail)
+    || socialLinks.length > 0;
 
   return (
     <main className="min-h-[calc(100vh-90px)] bg-[#111111] px-4 py-4 lg:px-8 lg:py-5">
@@ -286,22 +365,128 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               </p>
             )}
 
-            <div className="w-full rounded-[22px] bg-white/42 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_14px_34px_rgba(0,0,0,0.12)] backdrop-blur-sm">
-              <p className="min-h-[210px] text-sm leading-6 text-black/78">{profile.bio}</p>
+            <div className="profile-bio-card w-full min-w-0 overflow-hidden rounded-[22px] bg-white/42 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_14px_34px_rgba(0,0,0,0.12)] backdrop-blur-sm">
+              <p
+                className="min-h-[210px] max-w-full break-all text-sm leading-6 text-black/78"
+                style={{ overflowWrap: 'anywhere', wordBreak: 'break-all' }}
+              >
+                {profile.bio}
+              </p>
             </div>
+
+            {hasProfessionalProfile && (
+              <div className="profile-professional-card">
+                <div className="profile-professional-head">
+                  <span>Профессиональный профиль</span>
+                </div>
+
+                {professionalSkills.length > 0 && (
+                  <section className="profile-professional-section">
+                    <h2>Навыки</h2>
+                    <div className="profile-professional-tags">
+                      {professionalSkills.map((skill) => (
+                        <span key={skill}>{skill}</span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {professionalSoftware.length > 0 && (
+                  <section className="profile-professional-section">
+                    <h2>Программы</h2>
+                    <div className="profile-professional-tags profile-professional-tags-soft">
+                      {professionalSoftware.map((item) => (
+                        <span key={item}>{item}</span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {hiringTypes.length > 0 && (
+                  <section className="profile-professional-section">
+                    <h2>Формат работы</h2>
+                    <div className="profile-professional-tags">
+                      {hiringTypes.map((type) => (
+                        <span key={type}>{hiringLabels[type] ?? type}</span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {visiblePublicEmail && (
+                  <section className="profile-professional-section">
+                    <h2>Контакт</h2>
+                    <a className="profile-professional-email" href={`mailto:${visiblePublicEmail}`}>
+                      {visiblePublicEmail}
+                    </a>
+                  </section>
+                )}
+
+                {socialLinks.length > 0 && (
+                  <section className="profile-professional-section">
+                    <h2>Ссылки</h2>
+                    <div className="profile-professional-links">
+                      {socialLinks.map(([key, url]) => (
+                        <a key={key} href={url} target="_blank" rel="noreferrer">
+                          {socialLabels[key] ?? key}
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
+            )}
           </div>
         </aside>
 
-        <section className="">
+        <section className="profile-workspace">
+          {isOwner && (
+            <div className="profile-work-filters" aria-label="Фильтр работ по статусу">
+              {workStatusFilters.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  className={workStatusFilter === filter.id ? 'profile-work-filter-active' : ''}
+                  onClick={() => setWorkStatusFilter(filter.id)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {featuredWorks.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {featuredWorks.map((work) => (
               <div key={work.id} className="profile-work-card">
                 <a href={`/work/${work.id}`}>
-                  <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
+                  <Image
+                    src={work.thumbnailUrl || work.imageUrl}
+                    alt={work.title}
+                    width={work.thumbnailWidth ?? work.imageWidth ?? 1200}
+                    height={work.thumbnailHeight ?? work.imageHeight ?? 1500}
+                    unoptimized
+                  />
+                  {work.status !== 'published' && <span className="profile-work-status">{workStatusLabels[work.status]}</span>}
                   <p>{work.title}</p>
                 </a>
                 {isOwner && (
                   <div className="profile-work-actions">
+                    {work.status === 'draft' && (
+                      <button type="button" className="profile-work-publish-action" onClick={() => void publishDraftWork(work)}>
+                        Отправить на проверку
+                      </button>
+                    )}
+                    {work.status === 'pending' && (
+                      <button type="button" className="profile-work-publish-action" onClick={() => void moderateOwnWork(work)}>
+                        Проверить
+                      </button>
+                    )}
+                    {work.status === 'rejected' && (
+                      <button type="button" className="profile-work-publish-action" onClick={() => void moderateOwnWork(work)}>
+                        Повторить проверку
+                      </button>
+                    )}
                     <button type="button" onClick={() => void toggleFeaturedWork(work)}>
                       {work.featured ? 'Открепить' : 'Закрепить'}
                     </button>
@@ -312,22 +497,45 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               </div>
             ))}
           </div>
+          )}
 
 
           {categorySections.map((section) => (
-            <div key={section.category} className="space-y-4">
-              <span className="inline-flex rounded-lg bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black">
+            <div key={section.category} className="profile-work-section">
+              <span className="profile-work-category">
                 {section.category}
               </span>
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
                 {section.works.map((work) => (
                   <div key={work.id} className="profile-work-card">
                     <a href={`/work/${work.id}`}>
-                      <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
+                      <Image
+                        src={work.thumbnailUrl || work.imageUrl}
+                        alt={work.title}
+                        width={work.thumbnailWidth ?? work.imageWidth ?? 1200}
+                        height={work.thumbnailHeight ?? work.imageHeight ?? 1500}
+                        unoptimized
+                      />
+                      {work.status !== 'published' && <span className="profile-work-status">{workStatusLabels[work.status]}</span>}
                       <p>{work.title}</p>
                     </a>
                     {isOwner && (
                       <div className="profile-work-actions">
+                        {work.status === 'draft' && (
+                          <button type="button" className="profile-work-publish-action" onClick={() => void publishDraftWork(work)}>
+                            Отправить на проверку
+                          </button>
+                        )}
+                        {work.status === 'pending' && (
+                          <button type="button" className="profile-work-publish-action" onClick={() => void moderateOwnWork(work)}>
+                            Проверить
+                          </button>
+                        )}
+                        {work.status === 'rejected' && (
+                          <button type="button" className="profile-work-publish-action" onClick={() => void moderateOwnWork(work)}>
+                            Повторить проверку
+                          </button>
+                        )}
                         <button type="button" onClick={() => void toggleFeaturedWork(work)}>
                           {work.featured ? 'Открепить' : 'Закрепить'}
                         </button>
@@ -341,14 +549,14 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             </div>
           ))}
 
-          {works.length === 0 && (
+          {visibleWorks.length === 0 && (
             <div className="profile-empty-works">
-              <h2>{isOwner ? 'Опубликуйте первую работу' : 'У пользователя пока нет работ'}</h2>
-              <p>{isOwner ? 'Добавьте изображение, описание и теги, чтобы профиль начал выглядеть как портфолио.' : 'Когда автор добавит работы, они появятся здесь.'}</p>
+              <h2>{works.length === 0 ? (isOwner ? 'Опубликуйте первую работу' : 'У пользователя пока нет работ') : 'В этом фильтре нет работ'}</h2>
+              <p>{works.length === 0 ? (isOwner ? 'Добавьте изображение, описание и теги, чтобы профиль начал выглядеть как портфолио.' : 'Когда автор добавит работы, они появятся здесь.') : 'Переключите фильтр статуса, чтобы увидеть другие работы.'}</p>
               {isOwner && (
                 <button type="button" onClick={openCreateWorkModal}>
                   <span aria-hidden="true">+</span>
-                  Загрузить первую работу
+                  Загрузить работу
                 </button>
               )}
             </div>

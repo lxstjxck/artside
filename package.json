@@ -4,16 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "db:seed": "node scripts/seed-demo.mjs",
     "db:studio": "prisma studio"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",
-    "@prisma/client": "^6.16.2",
+    "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.2",
     "next": "^16.2.4",
@@ -32,7 +34,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.2.4",
     "postcss": "^8.5.6",
-    "prisma": "^6.16.2",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4.1.18",
     "typescript": "^5"
   }

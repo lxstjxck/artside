@@ -190,9 +190,11 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
     <div className="work-view-shell">
       <WorkCloseButton fallbackHref={closeHref} />
       <div className="work-view-media-wrap">
-        <div className="work-view-media">
-          <Image src={work.imageUrl} alt={work.title} width={work.imageWidth ?? 1200} height={work.imageHeight ?? 1500} unoptimized />
-        </div>
+        {(work.images?.length ? work.images : [{ id: work.id, url: work.imageUrl, width: work.imageWidth, height: work.imageHeight }]).map((image) => (
+          <div key={image.id} className="work-view-media">
+            <Image src={image.url} alt={work.title} width={image.width ?? 1200} height={image.height ?? 1500} unoptimized />
+          </div>
+        ))}
       </div>
 
       <aside className="work-view-side">

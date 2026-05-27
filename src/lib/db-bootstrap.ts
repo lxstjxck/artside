@@ -6,6 +6,10 @@ import type { UserProfile } from '@/lib/auth-types';
 let bootstrapPromise: Promise<void> | null = null;
 
 export const ensureDatabaseSchema = async () => {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
       await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;');
@@ -30,6 +34,13 @@ export const ensureDatabaseSchema = async () => {
           "bio" TEXT NOT NULL,
           "avatarUrl" TEXT NOT NULL,
           "avatarKey" TEXT,
+          "professionalSkills" TEXT NOT NULL DEFAULT '[]',
+          "professionalSoftware" TEXT NOT NULL DEFAULT '[]',
+          "publicEmail" TEXT NOT NULL DEFAULT '',
+          "showPublicEmail" BOOLEAN NOT NULL DEFAULT true,
+          "hiringTypes" TEXT NOT NULL DEFAULT '[]',
+          "socialLinks" TEXT NOT NULL DEFAULT '{}',
+          "publishReady" BOOLEAN NOT NULL DEFAULT false,
           "notifyLikes" BOOLEAN NOT NULL DEFAULT true,
           "notifyComments" BOOLEAN NOT NULL DEFAULT true,
           "emailNotifications" BOOLEAN NOT NULL DEFAULT false,
@@ -46,15 +57,34 @@ export const ensureDatabaseSchema = async () => {
           "title" TEXT NOT NULL,
           "category" TEXT NOT NULL,
           "description" TEXT NOT NULL DEFAULT '',
+          "status" TEXT NOT NULL DEFAULT 'published',
           "imageUrl" TEXT NOT NULL DEFAULT '',
           "imageKey" TEXT,
           "imageWidth" INTEGER NOT NULL DEFAULT 1200,
           "imageHeight" INTEGER NOT NULL DEFAULT 1500,
+          "thumbnailUrl" TEXT,
+          "thumbnailKey" TEXT,
+          "thumbnailWidth" INTEGER,
+          "thumbnailHeight" INTEGER,
           "tags" TEXT NOT NULL DEFAULT '[]',
           "featured" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" DATETIME NOT NULL,
           FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "WorkImage" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "workId" INTEGER NOT NULL,
+          "url" TEXT NOT NULL,
+          "key" TEXT,
+          "width" INTEGER NOT NULL,
+          "height" INTEGER NOT NULL,
+          "sortOrder" INTEGER NOT NULL DEFAULT 0,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("workId") REFERENCES "Work"("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
 
@@ -155,6 +185,26 @@ export const ensureDatabaseSchema = async () => {
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkView_workId_viewedAt_idx" ON "WorkView"("workId", "viewedAt");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_expiresAt_idx" ON "PasswordResetToken"("userId", "expiresAt");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "Work_status_createdAt_idx" ON "Work"("status", "createdAt");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkImage_workId_sortOrder_idx" ON "WorkImage"("workId", "sortOrder");');
+
+      const workColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("Work");');
+      const workColumnNames = new Set(workColumns.map((column) => column.name));
+      if (!workColumnNames.has('status')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Work" ADD COLUMN "status" TEXT NOT NULL DEFAULT \'published\';');
+      }
+      if (!workColumnNames.has('thumbnailUrl')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Work" ADD COLUMN "thumbnailUrl" TEXT;');
+      }
+      if (!workColumnNames.has('thumbnailKey')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Work" ADD COLUMN "thumbnailKey" TEXT;');
+      }
+      if (!workColumnNames.has('thumbnailWidth')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Work" ADD COLUMN "thumbnailWidth" INTEGER;');
+      }
+      if (!workColumnNames.has('thumbnailHeight')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Work" ADD COLUMN "thumbnailHeight" INTEGER;');
+      }
 
       const profileColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("Profile");');
       const profileColumnNames = new Set(profileColumns.map((column) => column.name));
@@ -166,6 +216,27 @@ export const ensureDatabaseSchema = async () => {
       }
       if (!profileColumnNames.has('emailNotifications')) {
         await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "emailNotifications" BOOLEAN NOT NULL DEFAULT false;');
+      }
+      if (!profileColumnNames.has('professionalSkills')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "professionalSkills" TEXT NOT NULL DEFAULT \'[]\';');
+      }
+      if (!profileColumnNames.has('professionalSoftware')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "professionalSoftware" TEXT NOT NULL DEFAULT \'[]\';');
+      }
+      if (!profileColumnNames.has('publicEmail')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "publicEmail" TEXT NOT NULL DEFAULT \'\';');
+      }
+      if (!profileColumnNames.has('showPublicEmail')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "showPublicEmail" BOOLEAN NOT NULL DEFAULT true;');
+      }
+      if (!profileColumnNames.has('hiringTypes')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "hiringTypes" TEXT NOT NULL DEFAULT \'[]\';');
+      }
+      if (!profileColumnNames.has('socialLinks')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "socialLinks" TEXT NOT NULL DEFAULT \'{}\';');
+      }
+      if (!profileColumnNames.has('publishReady')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "Profile" ADD COLUMN "publishReady" BOOLEAN NOT NULL DEFAULT false;');
       }
 
       const savedWorkColumns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("SavedWork");');
@@ -251,6 +322,13 @@ export const ensureDatabaseSchema = async () => {
           bio: user.profile?.bio ?? 'Расскажите о себе в профиле.',
           avatarUrl: user.profile?.avatarUrl ?? '',
           avatarKey: user.profile?.avatarKey ?? null,
+          professionalSkills: user.profile?.professionalSkills ?? [],
+          professionalSoftware: user.profile?.professionalSoftware ?? [],
+          publicEmail: user.profile?.publicEmail ?? '',
+          showPublicEmail: user.profile?.showPublicEmail ?? true,
+          hiringTypes: user.profile?.hiringTypes ?? [],
+          socialLinks: user.profile?.socialLinks ?? {},
+          publishReady: user.profile?.publishReady ?? false,
           notifyLikes: user.profile?.notifyLikes ?? true,
           notifyComments: user.profile?.notifyComments ?? true,
           emailNotifications: user.profile?.emailNotifications ?? false,
@@ -263,7 +341,13 @@ export const ensureDatabaseSchema = async () => {
             email: user.email.toLowerCase(),
             passwordHash: user.passwordHash,
             profile: {
-              create: profile,
+              create: {
+                ...profile,
+                professionalSkills: JSON.stringify(profile.professionalSkills),
+                professionalSoftware: JSON.stringify(profile.professionalSoftware),
+                hiringTypes: JSON.stringify(profile.hiringTypes),
+                socialLinks: JSON.stringify(profile.socialLinks),
+              },
             },
           },
         });

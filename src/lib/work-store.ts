@@ -11,8 +11,13 @@ export type WorkSummary = {
   imageKey?: string | null;
   imageWidth: number;
   imageHeight: number;
+  thumbnailUrl?: string | null;
+  thumbnailKey?: string | null;
+  thumbnailWidth?: number | null;
+  thumbnailHeight?: number | null;
   description: string;
   tags: string[];
+  status: WorkStatus;
   views: number;
   likes: number;
   saves: number;
@@ -31,6 +36,17 @@ export type WorkComment = {
   postedAt: string;
 };
 
+export type WorkStatus = 'draft' | 'pending' | 'published' | 'rejected';
+
+export type WorkImageItem = {
+  id: number;
+  url: string;
+  key?: string | null;
+  width: number;
+  height: number;
+  sortOrder: number;
+};
+
 export type WorkDetail = WorkSummary & {
   description: string;
   views: number;
@@ -40,6 +56,7 @@ export type WorkDetail = WorkSummary & {
   savedByMe: boolean;
   comments: WorkComment[];
   tags: string[];
+  images: WorkImageItem[];
   publishedAt: string;
 };
 
@@ -47,10 +64,22 @@ export type CreateWorkInput = {
   title: string;
   category: string;
   description: string;
+  status?: WorkStatus;
   imageUrl: string;
   imageKey?: string | null;
   imageWidth: number;
   imageHeight: number;
+  thumbnailUrl?: string | null;
+  thumbnailKey?: string | null;
+  thumbnailWidth?: number | null;
+  thumbnailHeight?: number | null;
+  images?: Array<{
+    url: string;
+    key?: string | null;
+    width: number;
+    height: number;
+    sortOrder: number;
+  }>;
   tags: string[];
   featured?: boolean;
 };
@@ -67,10 +96,15 @@ type WorkWithAuthor = {
   title: string;
   category: string;
   description: string;
+  status: string;
   imageUrl: string;
   imageKey: string | null;
   imageWidth: number;
   imageHeight: number;
+  thumbnailUrl: string | null;
+  thumbnailKey: string | null;
+  thumbnailWidth: number | null;
+  thumbnailHeight: number | null;
   tags: string;
   featured: boolean;
   createdAt: Date;
@@ -88,6 +122,7 @@ type WorkWithAuthor = {
       nickname: string;
     } | null;
   };
+  images?: WorkImageItem[];
 };
 
 type WorkCommentWithUser = {
@@ -104,7 +139,12 @@ type WorkCommentWithUser = {
 
 type WorkDetailRecord = WorkWithAuthor & {
   comments: WorkCommentWithUser[];
+  images: WorkImageItem[];
 };
+
+const isWorkStatus = (value: string): value is WorkStatus => (
+  value === 'draft' || value === 'pending' || value === 'published' || value === 'rejected'
+);
 
 const seedWorks: CreateWorkInput[] = [
   {
@@ -302,7 +342,7 @@ const seedWorks: CreateWorkInput[] = [
   },
 ];
 
-const parseTags = (value: string) => {
+export const parseTags = (value: string) => {
   try {
     const tags = JSON.parse(value) as unknown;
     return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
@@ -325,8 +365,13 @@ const mapWorkSummary = (work: WorkWithAuthor, viewerId?: string | null): WorkSum
   imageKey: work.imageKey,
   imageWidth: work.imageWidth,
   imageHeight: work.imageHeight,
+  thumbnailUrl: work.thumbnailUrl,
+  thumbnailKey: work.thumbnailKey,
+  thumbnailWidth: work.thumbnailWidth,
+  thumbnailHeight: work.thumbnailHeight,
   description: work.description,
   tags: parseTags(work.tags),
+  status: isWorkStatus(work.status) ? work.status : 'published',
   views: work._count.views,
   likes: work._count.likes,
   saves: work._count.savedBy,
@@ -354,6 +399,16 @@ const mapWorkDetail = (work: WorkDetailRecord, viewerId?: string | null): WorkDe
   likedByMe: viewerId ? Boolean(work.likes?.some((item) => item.userId === viewerId)) : false,
   savedByMe: viewerId ? Boolean(work.savedBy?.some((item) => item.userId === viewerId)) : false,
   comments: work.comments.map(mapComment),
+  images: work.images?.length
+    ? work.images
+    : [{
+        id: work.id,
+        url: work.imageUrl,
+        key: work.imageKey,
+        width: work.imageWidth,
+        height: work.imageHeight,
+        sortOrder: 0,
+      }],
   tags: parseTags(work.tags),
   publishedAt: formatPublishedAt(work.createdAt),
 });
@@ -397,6 +452,17 @@ const includeDetailForViewer = (viewerId?: string | null) => ({
       },
     },
   },
+  images: {
+    orderBy: { sortOrder: 'asc' as const },
+    select: {
+      id: true,
+      url: true,
+      key: true,
+      width: true,
+      height: true,
+      sortOrder: true,
+    },
+  },
 });
 
 const getRecencyScore = (createdAt: Date) => {
@@ -413,7 +479,7 @@ const getPopularScore = (work: WorkWithAuthor) => {
 
 const seedViewerIds = Array.from({ length: 12 }, (_, index) => `seed-demo-viewer-${index + 1}`);
 
-const ensureSeedWorks = async () => {
+export const seedDemoWorks = async () => {
   const author = await prisma.user.upsert({
     where: { username: 'Название_curator' },
     update: {},
@@ -541,9 +607,9 @@ const ensureSeedWorks = async () => {
 
 export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedResponse> => {
   await ensureDatabaseSchema();
-  await ensureSeedWorks();
 
   const works = await prisma.work.findMany({
+    where: { status: 'published' },
     orderBy: [{ createdAt: 'desc' }],
     include: includeForViewer(viewerId),
   });
@@ -558,6 +624,7 @@ export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedRe
   if (viewerId) {
     const interactions = await prisma.work.findMany({
       where: {
+        status: 'published',
         OR: [
           { savedBy: { some: { userId: viewerId } } },
           { likes: { some: { userId: viewerId } } },
@@ -606,22 +673,27 @@ export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedRe
 
 export const getWorkById = async (id: number, viewerId?: string | null): Promise<WorkDetail | null> => {
   await ensureDatabaseSchema();
-  await ensureSeedWorks();
 
   const work = await prisma.work.findUnique({
     where: { id },
     include: includeDetailForViewer(viewerId),
   });
 
+  if (work && work.status !== 'published' && work.authorId !== viewerId) {
+    return null;
+  }
+
   return work ? mapWorkDetail(work, viewerId) : null;
 };
 
 export const listUserWorks = async (authorId: string, viewerId?: string | null): Promise<WorkSummary[]> => {
   await ensureDatabaseSchema();
-  await ensureSeedWorks();
 
   const works = await prisma.work.findMany({
-    where: { authorId },
+    where: {
+      authorId,
+      ...(viewerId === authorId ? {} : { status: 'published' }),
+    },
     orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
     include: includeForViewer(viewerId),
   });
@@ -638,12 +710,32 @@ export const createWork = async (authorId: string, input: CreateWorkInput): Prom
       title: input.title,
       category: input.category,
       description: input.description,
+      status: input.status ?? 'published',
       imageUrl: input.imageUrl,
       imageKey: input.imageKey ?? null,
       imageWidth: input.imageWidth,
       imageHeight: input.imageHeight,
+      thumbnailUrl: input.thumbnailUrl ?? input.imageUrl,
+      thumbnailKey: input.thumbnailKey ?? null,
+      thumbnailWidth: input.thumbnailWidth ?? input.imageWidth,
+      thumbnailHeight: input.thumbnailHeight ?? input.imageHeight,
       tags: JSON.stringify(input.tags),
       featured: Boolean(input.featured),
+      images: {
+        create: (input.images?.length ? input.images : [{
+          url: input.imageUrl,
+          key: input.imageKey ?? null,
+          width: input.imageWidth,
+          height: input.imageHeight,
+          sortOrder: 0,
+        }]).map((image) => ({
+          url: image.url,
+          key: image.key ?? null,
+          width: image.width,
+          height: image.height,
+          sortOrder: image.sortOrder,
+        })),
+      },
     },
     include: includeDetailForViewer(authorId),
   });
@@ -655,6 +747,7 @@ export type UpdateWorkInput = {
   title: string;
   category: string;
   description: string;
+  status?: WorkStatus;
   tags: string[];
   image?: {
     imageUrl: string;
@@ -662,6 +755,19 @@ export type UpdateWorkInput = {
     imageWidth: number;
     imageHeight: number;
   };
+  thumbnail?: {
+    thumbnailUrl: string;
+    thumbnailKey: string | null;
+    thumbnailWidth: number;
+    thumbnailHeight: number;
+  };
+  images?: Array<{
+    url: string;
+    key: string | null;
+    width: number;
+    height: number;
+    sortOrder: number;
+  }>;
 };
 
 export const getWorkOwnerInfo = async (id: number) => {
@@ -671,7 +777,17 @@ export const getWorkOwnerInfo = async (id: number) => {
     select: {
       id: true,
       authorId: true,
+      imageUrl: true,
       imageKey: true,
+      imageWidth: true,
+      imageHeight: true,
+      thumbnailUrl: true,
+      thumbnailKey: true,
+      thumbnailWidth: true,
+      thumbnailHeight: true,
+      images: {
+        select: { key: true, url: true, width: true, height: true, sortOrder: true },
+      },
     },
   });
 };
@@ -685,6 +801,7 @@ export const updateWork = async (id: number, input: UpdateWorkInput): Promise<Wo
       title: input.title,
       category: input.category,
       description: input.description,
+      ...(input.status ? { status: input.status } : {}),
       tags: JSON.stringify(input.tags),
       ...(input.image
         ? {
@@ -692,6 +809,28 @@ export const updateWork = async (id: number, input: UpdateWorkInput): Promise<Wo
             imageKey: input.image.imageKey,
             imageWidth: input.image.imageWidth,
             imageHeight: input.image.imageHeight,
+          }
+        : {}),
+      ...(input.thumbnail
+        ? {
+            thumbnailUrl: input.thumbnail.thumbnailUrl,
+            thumbnailKey: input.thumbnail.thumbnailKey,
+            thumbnailWidth: input.thumbnail.thumbnailWidth,
+            thumbnailHeight: input.thumbnail.thumbnailHeight,
+          }
+        : {}),
+      ...(input.images
+        ? {
+            images: {
+              deleteMany: {},
+              create: input.images.map((image) => ({
+                url: image.url,
+                key: image.key,
+                width: image.width,
+                height: image.height,
+                sortOrder: image.sortOrder,
+              })),
+            },
           }
         : {}),
     },

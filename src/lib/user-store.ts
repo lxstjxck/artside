@@ -9,9 +9,49 @@ const createDefaultProfile = (username: string): UserProfile => ({
   bio: 'Расскажите о себе в профиле.',
   avatarUrl: '',
   avatarKey: null,
+  professionalSkills: [],
+  professionalSoftware: [],
+  publicEmail: '',
+  showPublicEmail: true,
+  hiringTypes: [],
+  socialLinks: {},
+  publishReady: false,
   notifyLikes: true,
   notifyComments: true,
   emailNotifications: false,
+});
+
+const parseStringList = (value: string | null | undefined) => {
+  try {
+    const parsed = JSON.parse(value ?? '[]') as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const stringifyStringList = (value: string[] | undefined) => JSON.stringify(Array.isArray(value) ? value : []);
+
+const parseSocialLinks = (value: string | null | undefined): UserProfile['socialLinks'] => {
+  try {
+    const parsed = JSON.parse(value ?? '{}') as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0),
+    );
+  } catch {
+    return {};
+  }
+};
+
+const stringifySocialLinks = (value: UserProfile['socialLinks'] | undefined) => JSON.stringify(value && typeof value === 'object' ? value : {});
+
+const toPrismaProfileData = (profile: UserProfile) => ({
+  ...profile,
+  professionalSkills: stringifyStringList(profile.professionalSkills),
+  professionalSoftware: stringifyStringList(profile.professionalSoftware),
+  hiringTypes: stringifyStringList(profile.hiringTypes),
+  socialLinks: stringifySocialLinks(profile.socialLinks),
 });
 
 const mapPrismaUserToStored = (user: {
@@ -25,6 +65,13 @@ const mapPrismaUserToStored = (user: {
     bio: string;
     avatarUrl: string;
     avatarKey: string | null;
+    professionalSkills: string;
+    professionalSoftware: string;
+    publicEmail: string;
+    showPublicEmail: boolean;
+    hiringTypes: string;
+    socialLinks: string;
+    publishReady: boolean;
     notifyLikes: boolean;
     notifyComments: boolean;
     emailNotifications: boolean;
@@ -41,6 +88,13 @@ const mapPrismaUserToStored = (user: {
         bio: user.profile.bio,
         avatarUrl: user.profile.avatarUrl,
         avatarKey: user.profile.avatarKey,
+        professionalSkills: parseStringList(user.profile.professionalSkills),
+        professionalSoftware: parseStringList(user.profile.professionalSoftware),
+        publicEmail: user.profile.publicEmail,
+        showPublicEmail: user.profile.showPublicEmail,
+        hiringTypes: parseStringList(user.profile.hiringTypes),
+        socialLinks: parseSocialLinks(user.profile.socialLinks),
+        publishReady: user.profile.publishReady,
         notifyLikes: user.profile.notifyLikes,
         notifyComments: user.profile.notifyComments,
         emailNotifications: user.profile.emailNotifications,
@@ -111,7 +165,7 @@ export const createUser = async (params: {
       email,
       passwordHash: params.passwordHash,
       profile: {
-        create: createDefaultProfile(params.username),
+        create: toPrismaProfileData(createDefaultProfile(params.username)),
       },
     },
     include: { profile: true },
@@ -138,6 +192,13 @@ export const updateUserProfile = async (userId: string, patch: Partial<UserProfi
         bio: existing.profile.bio,
         avatarUrl: existing.profile.avatarUrl,
         avatarKey: existing.profile.avatarKey,
+        professionalSkills: parseStringList(existing.profile.professionalSkills),
+        professionalSoftware: parseStringList(existing.profile.professionalSoftware),
+        publicEmail: existing.profile.publicEmail,
+        showPublicEmail: existing.profile.showPublicEmail,
+        hiringTypes: parseStringList(existing.profile.hiringTypes),
+        socialLinks: parseSocialLinks(existing.profile.socialLinks),
+        publishReady: existing.profile.publishReady,
         notifyLikes: existing.profile.notifyLikes,
         notifyComments: existing.profile.notifyComments,
         emailNotifications: existing.profile.emailNotifications,
@@ -149,15 +210,17 @@ export const updateUserProfile = async (userId: string, patch: Partial<UserProfi
     ...patch,
   };
 
+  const profileData = toPrismaProfileData(nextProfile);
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
       profile: existing.profile
         ? {
-            update: nextProfile,
+            update: profileData,
           }
         : {
-            create: nextProfile,
+            create: profileData,
           },
     },
     include: { profile: true },

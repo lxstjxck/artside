@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AuthUser, UserProfile } from '@/lib/auth-types';
 import { detectBrowserLocation } from '@/lib/browser-location';
 
-type SettingsTab = 'profile' | 'resume' | 'work-preferences' | 'social' | 'account' | 'notifications' | 'password';
+type SettingsTab = 'profile' | 'resume' | 'social' | 'account' | 'notifications' | 'password';
 
 type NotificationSettings = {
   notifyLikes: boolean;
@@ -20,25 +20,9 @@ type ProfileResponse = {
   profile?: UserProfile;
 };
 
-type PublishProfileDraft = {
-  summary?: string;
-  skills?: string[];
-  software?: string[];
-  publicEmail?: string;
-  location?: string;
-  hiring?: {
-    fullTime?: boolean;
-    contract?: boolean;
-    freelance?: boolean;
-  };
-};
-
-const PUBLISH_PROFILE_STORAGE_KEY = 'artside_publish_profile';
-
 const tabs: Array<{ id: SettingsTab; label: string; icon: string; description: string }> = [
   { id: 'profile', label: 'Профиль', icon: 'П', description: 'Публичная карточка автора' },
-  { id: 'resume', label: 'Резюме', icon: 'Р', description: 'Опыт и краткое описание' },
-  { id: 'work-preferences', label: 'Предпочтения в работе', icon: 'В', description: 'Формат, навыки и интересы' },
+  { id: 'resume', label: 'Резюме', icon: 'Р', description: 'Опыт, формат работы и навыки' },
   { id: 'social', label: 'Социальные сети', icon: 'С', description: 'Публичные ссылки автора' },
   { id: 'account', label: 'Аккаунт', icon: 'А', description: 'Почта и данные входа' },
   { id: 'notifications', label: 'Уведомления', icon: 'У', description: 'События и почта' },
@@ -49,19 +33,6 @@ const defaultNotificationSettings: NotificationSettings = {
   notifyLikes: true,
   notifyComments: true,
   emailNotifications: false,
-};
-
-const readPublishProfileDraft = (): PublishProfileDraft | null => {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const value = window.localStorage.getItem(PUBLISH_PROFILE_STORAGE_KEY);
-    if (!value) return null;
-    const parsed = JSON.parse(value) as PublishProfileDraft;
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
 };
 
 const skillSuggestions = [
@@ -102,6 +73,24 @@ const softwareSuggestions = [
   'OpenCanvas',
 ];
 
+const workPreferenceOptions = [
+  { id: 'fullTime', label: 'Полная занятость', description: 'Открыт к постоянной работе в команде или студии.' },
+  { id: 'contract', label: 'Контракт', description: 'Готов к проектной занятости с фиксированными сроками.' },
+  { id: 'freelance', label: 'Фриланс', description: 'Принимаю разовые заказы и частные комиссии.' },
+  { id: 'remote', label: 'Удалённо', description: 'Могу работать с распределённой командой.' },
+  { id: 'relocation', label: 'Переезд', description: 'Готов рассмотреть релокацию под подходящий проект.' },
+];
+
+const socialLinkFields: Array<{ id: keyof UserProfile['socialLinks']; label: string; placeholder: string }> = [
+  { id: 'portfolio', label: 'Портфолио', placeholder: 'https://example.com/portfolio' },
+  { id: 'website', label: 'Личный сайт', placeholder: 'https://example.com' },
+  { id: 'telegram', label: 'Telegram', placeholder: 'https://t.me/username' },
+  { id: 'vk', label: 'VK', placeholder: 'https://vk.com/username' },
+  { id: 'dzen', label: 'Дзен', placeholder: 'https://dzen.ru/username' },
+  { id: 'rutube', label: 'Rutube', placeholder: 'https://rutube.ru/channel/123456' },
+  { id: 'boosty', label: 'Boosty', placeholder: 'https://boosty.to/username' },
+];
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -115,12 +104,15 @@ export default function SettingsPage() {
     fullTime: true,
     contract: false,
     freelance: false,
+    remote: false,
+    relocation: false,
   });
   const [resumeSummary, setResumeSummary] = useState('');
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
   const [softwareInput, setSoftwareInput] = useState('');
   const [software, setSoftware] = useState<string[]>([]);
+  const [socialLinks, setSocialLinks] = useState<UserProfile['socialLinks']>({});
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -153,21 +145,16 @@ export default function SettingsPage() {
         setProfile(profileData.profile);
         setEmail(profileData.user.email);
         setResumeSummary(profileData.profile.bio ?? '');
-
-        const publishDraft = readPublishProfileDraft();
-        if (publishDraft) {
-          if (publishDraft.location) {
-            setProfile((current) => current ? { ...current, location: publishDraft.location ?? current.location } : current);
-          }
-          setResumeSummary(publishDraft.summary ?? profileData.profile.bio ?? '');
-          setSkills(Array.isArray(publishDraft.skills) ? publishDraft.skills : []);
-          setSoftware(Array.isArray(publishDraft.software) ? publishDraft.software : []);
-          setResumeHiring({
-            fullTime: Boolean(publishDraft.hiring?.fullTime),
-            contract: Boolean(publishDraft.hiring?.contract),
-            freelance: Boolean(publishDraft.hiring?.freelance),
-          });
-        }
+        setSkills(profileData.profile.professionalSkills ?? []);
+        setSoftware(profileData.profile.professionalSoftware ?? []);
+        setResumeHiring({
+          fullTime: profileData.profile.hiringTypes?.includes('fullTime') ?? false,
+          contract: profileData.profile.hiringTypes?.includes('contract') ?? false,
+          freelance: profileData.profile.hiringTypes?.includes('freelance') ?? false,
+          remote: profileData.profile.hiringTypes?.includes('remote') ?? false,
+          relocation: profileData.profile.hiringTypes?.includes('relocation') ?? false,
+        });
+        setSocialLinks(profileData.profile.socialLinks ?? {});
 
         if (notificationsResponse.ok) {
           const notificationsData = (await notificationsResponse.json()) as { settings?: NotificationSettings };
@@ -202,7 +189,7 @@ export default function SettingsPage() {
     return () => URL.revokeObjectURL(url);
   }, [avatarFile]);
 
-  const updateProfileField = (field: keyof UserProfile, value: string) => {
+  const updateProfileField = (field: 'nickname' | 'location' | 'bio' | 'avatarUrl', value: string) => {
     setProfile((current) => current ? { ...current, [field]: value } : current);
   };
 
@@ -356,38 +343,87 @@ export default function SettingsPage() {
       .slice(0, 8);
   };
 
-  const saveResumeDraft = () => {
-    window.localStorage.setItem(PUBLISH_PROFILE_STORAGE_KEY, JSON.stringify({
-      summary: resumeSummary.trim(),
-      skills,
-      software,
-      publicEmail: email,
-      location: profile?.location ?? '',
-      hiring: resumeHiring,
-    }));
-    window.localStorage.setItem('artside_publish_ready', '1');
-  };
+  const saveResumeSection = async (text: string) => {
+    if (!profile) return;
 
-  const saveLocalResumeSection = async (text: string) => {
-    saveResumeDraft();
+    setIsSaving(true);
+    setMessage(null);
 
-    if (profile) {
+    try {
+      const hiringTypes = Object.entries(resumeHiring)
+        .filter(([, enabled]) => enabled)
+        .map(([key]) => key);
       const formData = new FormData();
       formData.set('nickname', profile.nickname);
       formData.set('location', profile.location);
       formData.set('bio', resumeSummary.trim() || profile.bio);
       formData.set('avatarUrl', profile.avatarUrl);
+      formData.set('professionalSkills', JSON.stringify(skills));
+      formData.set('professionalSoftware', JSON.stringify(software));
+      formData.set('publicEmail', profile.publicEmail || email);
+      formData.set('showPublicEmail', String(profile.showPublicEmail));
+      formData.set('hiringTypes', JSON.stringify(hiringTypes));
+      formData.set('publishReady', String(profile.publishReady || Boolean(resumeSummary.trim() || skills.length || software.length || hiringTypes.length)));
+
       const response = await fetch('/api/profile', {
         method: 'PATCH',
         body: formData,
       });
       const data = (await response.json().catch(() => ({}))) as { profile?: UserProfile; message?: string };
-      if (response.ok && data.profile) {
-        setProfile(data.profile);
+      if (!response.ok || !data.profile) {
+        setMessage(data.message ?? 'Не удалось сохранить резюме.');
+        return;
       }
-    }
 
-    setMessage(text);
+      setProfile(data.profile);
+      setResumeSummary(data.profile.bio ?? '');
+      setSkills(data.profile.professionalSkills ?? []);
+      setSoftware(data.profile.professionalSoftware ?? []);
+      setResumeHiring({
+        fullTime: data.profile.hiringTypes?.includes('fullTime') ?? false,
+        contract: data.profile.hiringTypes?.includes('contract') ?? false,
+        freelance: data.profile.hiringTypes?.includes('freelance') ?? false,
+        remote: data.profile.hiringTypes?.includes('remote') ?? false,
+        relocation: data.profile.hiringTypes?.includes('relocation') ?? false,
+      });
+      setMessage(text);
+    } catch {
+      setMessage('Сетевая ошибка при сохранении резюме.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const saveSocialLinks = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profile) return;
+
+    setIsSaving(true);
+    setMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.set('nickname', profile.nickname);
+      formData.set('location', profile.location);
+      formData.set('bio', profile.bio);
+      formData.set('avatarUrl', profile.avatarUrl);
+      formData.set('socialLinks', JSON.stringify(socialLinks));
+
+      const response = await fetch('/api/profile', { method: 'PATCH', body: formData });
+      const data = (await response.json().catch(() => ({}))) as { profile?: UserProfile; message?: string };
+      if (!response.ok || !data.profile) {
+        setMessage(data.message ?? 'Не удалось сохранить ссылки.');
+        return;
+      }
+
+      setProfile(data.profile);
+      setSocialLinks(data.profile.socialLinks ?? {});
+      setMessage('Социальные ссылки сохранены.');
+    } catch {
+      setMessage('Сетевая ошибка при сохранении ссылок.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const addListItem = (value: string, setValue: (value: string) => void, setItems: React.Dispatch<React.SetStateAction<string[]>>) => {
@@ -523,20 +559,21 @@ export default function SettingsPage() {
                 <h3>Готовность к работе</h3>
                 <p>Отметьте форматы сотрудничества, которые вам интересны.</p>
                 <div className="settings-choice-grid">
-                  <label className="settings-page-toggle">
-                    <input type="checkbox" checked={resumeHiring.fullTime} onChange={(event) => setResumeHiring((current) => ({ ...current, fullTime: event.target.checked }))} />
-                    <span><strong>Полная занятость</strong></span>
-                  </label>
-                  <label className="settings-page-toggle">
-                    <input type="checkbox" checked={resumeHiring.contract} onChange={(event) => setResumeHiring((current) => ({ ...current, contract: event.target.checked }))} />
-                    <span><strong>Контракт</strong></span>
-                  </label>
-                  <label className="settings-page-toggle">
-                    <input type="checkbox" checked={resumeHiring.freelance} onChange={(event) => setResumeHiring((current) => ({ ...current, freelance: event.target.checked }))} />
-                    <span><strong>Фриланс</strong></span>
-                  </label>
+                  {workPreferenceOptions.map((item) => (
+                    <label key={item.id} className="settings-page-toggle">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(resumeHiring[item.id as keyof typeof resumeHiring])}
+                        onChange={(event) => setResumeHiring((current) => ({ ...current, [item.id]: event.target.checked }))}
+                      />
+                      <span>
+                        <strong>{item.label}</strong>
+                        {item.description}
+                      </span>
+                    </label>
+                  ))}
                 </div>
-                <button type="button" onClick={() => saveLocalResumeSection('Предпочтения резюме сохранены.')}>Сохранить</button>
+                <button type="button" onClick={() => void saveResumeSection('Предпочтения резюме сохранены.')} disabled={isSaving}>Сохранить</button>
               </section>
 
               <section className="settings-resume-section">
@@ -545,7 +582,7 @@ export default function SettingsPage() {
                   Краткое резюме
                   <textarea value={resumeSummary} onChange={(event) => setResumeSummary(event.target.value)} placeholder="Опишите свой опыт, специализацию, сильные стороны и тип проектов, с которыми вы работаете." />
                 </label>
-                <button type="button" onClick={() => saveLocalResumeSection('Описание резюме сохранено.')}>Сохранить</button>
+                <button type="button" onClick={() => void saveResumeSection('Описание резюме сохранено.')} disabled={isSaving}>Сохранить</button>
               </section>
 
               <section className="settings-resume-section">
@@ -555,7 +592,7 @@ export default function SettingsPage() {
                   Файл PDF
                   <input type="file" accept="application/pdf" />
                 </label>
-                <button type="button" onClick={() => saveLocalResumeSection('PDF будет прикреплен после подключения хранения файлов.')}>Сохранить</button>
+                <button type="button" onClick={() => void saveResumeSection('PDF будет прикреплен после подключения хранения файлов.')} disabled={isSaving}>Сохранить</button>
               </section>
 
               <section className="settings-resume-section">
@@ -593,6 +630,7 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <button type="button" onClick={() => addListItem(skillInput, setSkillInput, setSkills)}>Добавить навык</button>
+                <button type="button" onClick={() => void saveResumeSection('Навыки сохранены.')} disabled={isSaving}>Сохранить навыки</button>
               </section>
 
               <section className="settings-resume-section">
@@ -630,40 +668,28 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <button type="button" onClick={() => addListItem(softwareInput, setSoftwareInput, setSoftware)}>Добавить программу</button>
+                <button type="button" onClick={() => void saveResumeSection('Программы сохранены.')} disabled={isSaving}>Сохранить программы</button>
               </section>
             </div>
           )}
 
-          {activeTab === 'work-preferences' && (
-            <section className="settings-static-panel">
-              <h3>Предпочтения в работе</h3>
-              <p>Укажите форматы сотрудничества и направления, которые вам интересны.</p>
-              <div className="settings-choice-grid">
-                {['Полная занятость', 'Контракт', 'Фриланс', 'Удалённо', 'Переезд'].map((item) => (
-                  <label key={item} className="settings-page-toggle">
-                    <input type="checkbox" />
-                    <span><strong>{item}</strong></span>
-                  </label>
-                ))}
-              </div>
-              <button type="button" disabled>Сохранение скоро появится</button>
-            </section>
-          )}
-
           {activeTab === 'social' && (
-            <section className="settings-static-panel">
+            <form className="settings-page-form" onSubmit={saveSocialLinks}>
               <h3>Социальные сети</h3>
-              <p>Добавьте публичные ссылки на портфолио, сайт и социальные профили.</p>
-              <label>
-                Сайт или портфолио
-                <input placeholder="https://example.com" />
-              </label>
-              <label>
-                Социальная сеть
-                <input placeholder="https://..." />
-              </label>
-              <button type="button" disabled>Сохранение скоро появится</button>
-            </section>
+              <p className="settings-page-hint">Добавьте публичные ссылки на сайт, портфолио и рабочие площадки, доступные вашей аудитории.</p>
+              {socialLinkFields.map((field) => (
+                <label key={field.id}>
+                  {field.label}
+                  <input
+                    type="url"
+                    value={socialLinks[field.id] ?? ''}
+                    onChange={(event) => setSocialLinks((current) => ({ ...current, [field.id]: event.target.value }))}
+                    placeholder={field.placeholder}
+                  />
+                </label>
+              ))}
+              <button type="submit" disabled={isSaving}>{isSaving ? 'Сохранение...' : 'Сохранить ссылки'}</button>
+            </form>
           )}
 
           {activeTab === 'notifications' && (

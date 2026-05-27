@@ -6,6 +6,55 @@ import Link from 'next/link';
 import type { HomeFeedResponse, WorkSummary } from '@/lib/home-feed';
 import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
 
+type SearchFilters = {
+  categories: Array<{ name: string; count: number }>;
+  tags: Array<{ name: string; count: number }>;
+  authors: Array<{ username: string; name: string; count: number }>;
+};
+
+type SearchResponse = {
+  items?: WorkSummary[];
+  filters?: SearchFilters;
+};
+
+type HomeSearchState = {
+  q: string;
+  category: string;
+  tags: string[];
+  author: string;
+  sort: 'newest' | 'popular';
+};
+
+const emptySearchFilters: SearchFilters = {
+  categories: [],
+  tags: [],
+  authors: [],
+};
+
+const parseSearchState = (): HomeSearchState => {
+  if (typeof window === 'undefined') {
+    return { q: '', category: '', tags: [], author: '', sort: 'newest' };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    q: params.get('q')?.trim() ?? '',
+    category: params.get('category')?.trim() ?? '',
+    tags: (params.get('tags') ?? params.get('tag') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+    author: params.get('author')?.trim() ?? '',
+    sort: params.get('sort') === 'popular' ? 'popular' : 'newest',
+  };
+};
+
+const buildSearchQuery = (state: HomeSearchState) => {
+  const params = new URLSearchParams();
+  if (state.q) params.set('q', state.q);
+  if (state.category) params.set('category', state.category);
+  if (state.tags.length > 0) params.set('tags', state.tags.join(','));
+  if (state.author) params.set('author', state.author);
+  if (state.sort === 'popular') params.set('sort', state.sort);
+  return params.toString();
+};
+
 export default function Home() {
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [feed, setFeed] = useState<HomeFeedResponse | null>(null);
@@ -28,6 +77,11 @@ export default function Home() {
 
   const [popularCanScrollLeft, setPopularCanScrollLeft] = useState(false);
   const [popularCanScrollRight, setPopularCanScrollRight] = useState(false);
+  const [searchState, setSearchState] = useState<HomeSearchState>(() => parseSearchState());
+  const [searchItems, setSearchItems] = useState<WorkSummary[]>([]);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(emptySearchFilters);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const popularRef = useRef<HTMLDivElement | null>(null);
 
@@ -86,6 +140,58 @@ export default function Home() {
   }, [toastMessage]);
 
   useEffect(() => {
+    const handleLocationChange = () => setSearchState(parseSearchState());
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('artside:search-change', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('artside:search-change', handleLocationChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const queryString = buildSearchQuery(searchState);
+    const hasSearch = Boolean(queryString);
+
+    if (!hasSearch) {
+      setSearchItems([]);
+      setSearchFilters(emptySearchFilters);
+      setSearchError(null);
+      setIsSearchLoading(false);
+      return () => controller.abort();
+    }
+
+    const loadSearch = async () => {
+      setIsSearchLoading(true);
+      setSearchError(null);
+      try {
+        const response = await fetch(`/api/search?${queryString}`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        const data = (await response.json()) as SearchResponse;
+        if (!response.ok) {
+          throw new Error('Не удалось загрузить результаты поиска.');
+        }
+        setSearchItems(data.items ?? []);
+        setSearchFilters(data.filters ?? emptySearchFilters);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setSearchError((error as Error).message || 'Не удалось загрузить результаты поиска.');
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearchLoading(false);
+        }
+      }
+    };
+
+    void loadSearch();
+    return () => controller.abort();
+  }, [searchState]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     const loadSavedWorks = async () => {
@@ -119,11 +225,43 @@ export default function Home() {
 
   const categories = feed?.categories ?? [];
   const popularItems = feed?.popular ?? [];
+  const isSearchMode = Boolean(buildSearchQuery(searchState));
+  const searchGuideItems = [
+    ...searchFilters.categories.slice(0, 6).map((item) => ({
+      key: `category-${item.name}`,
+      label: item.name,
+      category: item.name,
+      tag: '',
+      author: '',
+      active: searchState.category === item.name,
+    })),
+    ...searchFilters.tags.slice(0, 10).map((item) => ({
+      key: `tag-${item.name}`,
+      label: item.name,
+      category: '',
+      tag: item.name,
+      author: '',
+      active: searchState.tags.includes(item.name),
+    })),
+    ...searchFilters.authors.slice(0, 5).map((item) => ({
+      key: `author-${item.username}`,
+      label: item.name,
+      category: '',
+      tag: '',
+      author: item.username,
+      active: searchState.author === item.username,
+    })),
+  ];
+  const searchTitle = searchState.q
+    ? `Поиск: ${searchState.q}`
+    : searchState.category || searchState.tags[0] || (searchState.author ? `Автор: ${searchState.author}` : 'Поиск');
   const recommendedItems = useMemo(() => {
     const items = feed?.recommendations ?? [];
     if (activeCategories.length === 0) return items;
     return items.filter((item) => activeCategories.includes(item.category));
   }, [activeCategories, feed]);
+  const visibleItems = isSearchMode ? searchItems : recommendedItems;
+  const isVisibleLoading = isSearchMode ? isSearchLoading : isFeedLoading;
 
   useEffect(() => {
     const track = popularRef.current;
@@ -148,6 +286,38 @@ export default function Home() {
         ? current.filter((item) => item !== category)
         : [...current, category]
     );
+  };
+
+  const updateSearch = (next: Partial<HomeSearchState>) => {
+    const prepared: HomeSearchState = {
+      ...searchState,
+      ...next,
+      tags: next.tags ?? searchState.tags,
+    };
+    const queryString = buildSearchQuery(prepared);
+    window.history.pushState(null, '', queryString ? `/?${queryString}` : '/');
+    window.dispatchEvent(new Event('artside:search-change'));
+  };
+
+  const clearSearch = () => {
+    window.history.pushState(null, '', '/');
+    window.dispatchEvent(new Event('artside:search-change'));
+  };
+
+  const toggleSearchTag = (tag: string) => {
+    updateSearch({
+      tags: searchState.tags.includes(tag)
+        ? searchState.tags.filter((item) => item !== tag)
+        : [...searchState.tags, tag],
+    });
+  };
+
+  const toggleSearchCategory = (category: string) => {
+    updateSearch({ category: searchState.category === category ? '' : category });
+  };
+
+  const toggleSearchAuthor = (author: string) => {
+    updateSearch({ author: searchState.author === author ? '' : author });
   };
 
   const loadLibraryFolders = async () => {
@@ -302,6 +472,7 @@ export default function Home() {
 
   return (
     <main>
+      {!isSearchMode && (
       <section className="pb-1">
         <div className="flex w-full flex-wrap items-center justify-between gap-4 px-10 pb-4">
           <div className="flex items-center gap-3">
@@ -335,8 +506,11 @@ export default function Home() {
           </div>
         </div>
       </section>
+      )}
 
       <section className="section-dark">
+        {!isSearchMode && (
+        <>
         <div className="home-section-block w-full px-10">
           <h2 className="section-title">Популярное</h2>
           {feedError && <p className="modern-alert mb-3">{feedError}</p>}
@@ -377,7 +551,13 @@ export default function Home() {
                 <div key={item.id} className="popular-card snap-start">
                   <div className="popular-thumb">
                     <Link href={`/work/${item.id}`} aria-label={`Открыть работу ${item.title}`}>
-                      <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                      <Image
+                        src={item.thumbnailUrl || item.imageUrl}
+                        alt={item.title}
+                        width={item.thumbnailWidth ?? item.imageWidth ?? 1200}
+                        height={item.thumbnailHeight ?? item.imageHeight ?? 1500}
+                        unoptimized
+                      />
                     </Link>
                     <div className="popular-overlay">
                       {renderSaveButton(item)}
@@ -394,9 +574,53 @@ export default function Home() {
         </div>
 
         <div className="section-divider" />
+        </>
+        )}
 
         <div className="home-section-block w-full px-10 pb-12">
-          <h2 className="section-title">Рекомендации для вас</h2>
+          <div className="home-search-head">
+            <h2 className="section-title">{isSearchMode ? searchTitle : 'Рекомендации для вас'}</h2>
+            {isSearchMode && (
+              <div className="home-search-sort" aria-label="Сортировка результатов поиска">
+                <button
+                  type="button"
+                  className={searchState.sort === 'newest' ? 'home-search-sort-active' : ''}
+                  onClick={() => updateSearch({ sort: 'newest' })}
+                >
+                  Новые
+                </button>
+                <button
+                  type="button"
+                  className={searchState.sort === 'popular' ? 'home-search-sort-active' : ''}
+                  onClick={() => updateSearch({ sort: 'popular' })}
+                >
+                  Популярные
+                </button>
+                <button type="button" onClick={clearSearch}>
+                  Сбросить
+                </button>
+              </div>
+            )}
+          </div>
+          {isSearchMode && searchGuideItems.length > 0 && (
+            <div className="home-search-filters" aria-label="Уточнить поиск">
+              {searchGuideItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={item.active ? 'home-search-chip-active' : ''}
+                  onClick={() => {
+                    if (item.category) toggleSearchCategory(item.category);
+                    if (item.tag) toggleSearchTag(item.tag);
+                    if (item.author) toggleSearchAuthor(item.author);
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {isSearchMode && searchError && <p className="modern-alert mb-3">{searchError}</p>}
           {isSavedLoading && (
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/6 px-3 py-1 text-xs text-white/70">
               <span className="modern-spinner" />
@@ -404,21 +628,29 @@ export default function Home() {
             </div>
           )}
           <div className="home-section-content recommend-masonry">
-            {isFeedLoading && recommendedItems.length === 0 && (
+            {isVisibleLoading && visibleItems.length === 0 && (
               Array.from({ length: 10 }, (_, index) => (
                 <article key={`recommend-loading-${index}`} className="recommend-card">
                   <div className="recommend-card-media modern-skeleton" />
                 </article>
               ))
             )}
-            {!isFeedLoading && recommendedItems.length === 0 && (
-              <p className="text-sm text-white/70">В выбранных категориях пока нет работ.</p>
+            {!isVisibleLoading && visibleItems.length === 0 && (
+              <p className="text-sm text-white/70">
+                {isSearchMode ? 'По этому запросу пока нет подходящих работ.' : 'В выбранных категориях пока нет работ.'}
+              </p>
             )}
-            {recommendedItems.map((item) => (
+            {visibleItems.map((item) => (
               <article key={item.id} className="recommend-card">
                 <div className="recommend-card-media">
                   <Link href={`/work/${item.id}`} aria-label={`Открыть работу ${item.title}`}>
-                    <Image src={item.imageUrl} alt={item.title} width={item.imageWidth ?? 1200} height={item.imageHeight ?? 1500} unoptimized />
+                    <Image
+                      src={item.thumbnailUrl || item.imageUrl}
+                      alt={item.title}
+                      width={item.thumbnailWidth ?? item.imageWidth ?? 1200}
+                      height={item.thumbnailHeight ?? item.imageHeight ?? 1500}
+                      unoptimized
+                    />
                   </Link>
                   <div className="recommend-card-overlay">
                     {renderSaveButton(item)}

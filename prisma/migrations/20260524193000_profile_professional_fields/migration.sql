@@ -1,0 +1,6 @@
+ALTER TABLE "Profile" ADD COLUMN "professionalSkills" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Profile" ADD COLUMN "professionalSoftware" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Profile" ADD COLUMN "publicEmail" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "Profile" ADD COLUMN "showPublicEmail" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "Profile" ADD COLUMN "hiringTypes" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Profile" ADD COLUMN "publishReady" BOOLEAN NOT NULL DEFAULT false;

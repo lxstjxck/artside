@@ -38,6 +38,13 @@ model Profile {
   bio       String
   avatarUrl String
   avatarKey String?
+  professionalSkills String @default("[]")
+  professionalSoftware String @default("[]")
+  publicEmail String @default("")
+  showPublicEmail Boolean @default(true)
+  hiringTypes String @default("[]")
+  socialLinks String @default("{}")
+  publishReady Boolean @default(false)
   notifyLikes Boolean @default(true)
   notifyComments Boolean @default(true)
   emailNotifications Boolean @default(false)
@@ -52,10 +59,15 @@ model Work {
   title       String
   category    String
   description String
+  status      String      @default("published")
   imageUrl    String
   imageKey    String?
   imageWidth  Int         @default(1200)
   imageHeight Int         @default(1500)
+  thumbnailUrl String?
+  thumbnailKey String?
+  thumbnailWidth Int?
+  thumbnailHeight Int?
   tags        String
   featured    Boolean     @default(false)
   createdAt   DateTime    @default(now())
@@ -65,6 +77,23 @@ model Work {
   likes       WorkLike[]
   comments    WorkComment[]
   views       WorkView[]
+  images      WorkImage[]
+
+  @@index([status, createdAt])
+}
+
+model WorkImage {
+  id        Int      @id @default(autoincrement())
+  workId    Int
+  url       String
+  key       String?
+  width     Int
+  height    Int
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  work      Work     @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([workId, sortOrder])
 }
 
 model SavedWork {
