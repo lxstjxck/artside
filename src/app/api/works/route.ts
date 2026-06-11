@@ -1,19 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getImageDimensions } from '@/lib/image-metadata';
+import { moderateWork } from '@/lib/moderation-store';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { getSessionUser } from '@/lib/session-user';
-import { uploadWorkImage } from '@/lib/work-image-storage';
-import { createWork } from '@/lib/work-store';
+import { storeAvifWorkThumbnail, storeOriginalWorkImage } from '@/lib/work-image-processing';
+import { createWork, getWorkById } from '@/lib/work-store';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const MAX_WORK_IMAGES = 8;
 const MAX_GALLERY_IMAGES = MAX_WORK_IMAGES - 1;
-const ALLOWED_TYPES = new Map([
-  ['image/jpeg', 'jpg'],
-  ['image/png', 'png'],
-  ['image/webp', 'webp'],
-]);
-
 const trimString = (value: FormDataEntryValue | null) => (typeof value === 'string' ? value.trim() : '');
 
 const parseTags = (value: string) => {
@@ -22,36 +16,6 @@ const parseTags = (value: string) => {
 
 const parseStatus = (value: FormDataEntryValue | null) => {
   return value === 'draft' ? 'draft' : 'pending';
-};
-
-const storeImageFile = async (image: File) => {
-  const extension = ALLOWED_TYPES.get(image.type);
-  if (!extension) {
-    throw new Error('UNSUPPORTED_IMAGE_TYPE');
-  }
-
-  if (image.size <= 0 || image.size > MAX_IMAGE_SIZE) {
-    throw new Error('INVALID_IMAGE_SIZE');
-  }
-
-  const buffer = Buffer.from(await image.arrayBuffer());
-  const dimensions = getImageDimensions(buffer);
-  if (!dimensions) {
-    throw new Error('INVALID_IMAGE_DIMENSIONS');
-  }
-
-  const storedImage = await uploadWorkImage({
-    buffer,
-    extension,
-    contentType: image.type,
-  });
-
-  return {
-    url: storedImage.url,
-    key: storedImage.key,
-    width: dimensions.width,
-    height: dimensions.height,
-  };
 };
 
 export async function POST(request: Request) {
@@ -105,14 +69,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: `В одной работе можно разместить до ${MAX_WORK_IMAGES} изображений, включая основное.` }, { status: 400 });
   }
 
-  let primaryImage: Awaited<ReturnType<typeof storeImageFile>>;
-  let thumbnailImage: Awaited<ReturnType<typeof storeImageFile>> | null = null;
-  let galleryImages: Array<Awaited<ReturnType<typeof storeImageFile>>>;
+  let primaryImage: Awaited<ReturnType<typeof storeOriginalWorkImage>>;
+  let thumbnailImage: Awaited<ReturnType<typeof storeAvifWorkThumbnail>>;
+  let galleryImages: Array<Awaited<ReturnType<typeof storeOriginalWorkImage>>>;
 
   try {
-    primaryImage = await storeImageFile(image);
-    thumbnailImage = thumbnail instanceof File && thumbnail.size > 0 ? await storeImageFile(thumbnail) : null;
-    galleryImages = await Promise.all(galleryFiles.map(storeImageFile));
+    primaryImage = await storeOriginalWorkImage(image, MAX_IMAGE_SIZE);
+    thumbnailImage = thumbnail instanceof File && thumbnail.size > 0
+      ? await storeAvifWorkThumbnail(thumbnail, MAX_IMAGE_SIZE)
+      : await storeAvifWorkThumbnail(primaryImage.buffer);
+    galleryImages = await Promise.all(galleryFiles.map((file) => storeOriginalWorkImage(file, MAX_IMAGE_SIZE)));
   } catch (error) {
     const code = (error as Error).message;
     if (code === 'UNSUPPORTED_IMAGE_TYPE') {
@@ -150,13 +116,19 @@ export async function POST(request: Request) {
     imageKey: primaryImage.key,
     imageWidth: primaryImage.width,
     imageHeight: primaryImage.height,
-    thumbnailUrl: thumbnailImage?.url ?? primaryImage.url,
-    thumbnailKey: thumbnailImage?.key ?? primaryImage.key,
-    thumbnailWidth: thumbnailImage?.width ?? primaryImage.width,
-    thumbnailHeight: thumbnailImage?.height ?? primaryImage.height,
+    thumbnailUrl: thumbnailImage.url,
+    thumbnailKey: thumbnailImage.key,
+    thumbnailWidth: thumbnailImage.width,
+    thumbnailHeight: thumbnailImage.height,
     images,
     tags,
   });
+
+  if (status !== 'draft') {
+    await moderateWork(work.id);
+    const moderatedWork = await getWorkById(work.id, user.id);
+    return NextResponse.json({ work: moderatedWork ?? work }, { status: 201 });
+  }
 
   return NextResponse.json({ work }, { status: 201 });
 }

@@ -31,6 +31,9 @@ const emptySearchFilters: SearchFilters = {
   authors: [],
 };
 
+const INITIAL_RECOMMENDATION_COUNT = 18;
+const RECOMMENDATION_BATCH_SIZE = 12;
+
 const parseSearchState = (): HomeSearchState => {
   if (typeof window === 'undefined') {
     return { q: '', category: '', tags: [], author: '', sort: 'newest' };
@@ -82,8 +85,11 @@ export default function Home() {
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(emptySearchFilters);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [isRecommendationsLoadingMore, setIsRecommendationsLoadingMore] = useState(false);
 
   const popularRef = useRef<HTMLDivElement | null>(null);
+  const recommendationLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const recommendationCategoryKeyRef = useRef('');
 
   const applySavedItems = (items: SavedWorkItem[]) => {
     setSavedWorkIds(items.map((item) => item.id));
@@ -107,7 +113,7 @@ export default function Home() {
 
     const loadFeed = async () => {
       try {
-        const response = await fetch('/api/home-feed', {
+        const response = await fetch(`/api/home-feed?recommendationsLimit=${INITIAL_RECOMMENDATION_COUNT}`, {
           signal: controller.signal,
           cache: 'no-store',
         });
@@ -257,11 +263,61 @@ export default function Home() {
     : searchState.category || searchState.tags[0] || (searchState.author ? `Автор: ${searchState.author}` : 'Поиск');
   const recommendedItems = useMemo(() => {
     const items = feed?.recommendations ?? [];
-    if (activeCategories.length === 0) return items;
-    return items.filter((item) => activeCategories.includes(item.category));
-  }, [activeCategories, feed]);
+    return items;
+  }, [feed]);
+  const hasMoreRecommendations = !isSearchMode && Boolean(feed?.recommendationsPage?.hasMore);
   const visibleItems = isSearchMode ? searchItems : recommendedItems;
   const isVisibleLoading = isSearchMode ? isSearchLoading : isFeedLoading;
+  const hasFeed = Boolean(feed);
+  const recommendationCategoryKey = useMemo(() => (
+    [...activeCategories].sort((a, b) => a.localeCompare(b, 'ru')).join(',')
+  ), [activeCategories]);
+
+  useEffect(() => {
+    if (!hasFeed) return;
+    if (recommendationCategoryKeyRef.current === recommendationCategoryKey) return;
+    recommendationCategoryKeyRef.current = recommendationCategoryKey;
+
+    const controller = new AbortController();
+
+    const loadFilteredRecommendations = async () => {
+      setIsRecommendationsLoadingMore(true);
+      try {
+        const params = new URLSearchParams({
+          recommendationsOffset: '0',
+          recommendationsLimit: String(INITIAL_RECOMMENDATION_COUNT),
+        });
+        if (recommendationCategoryKey) {
+          params.set('categories', recommendationCategoryKey);
+        }
+
+        const response = await fetch(`/api/home-feed?${params.toString()}`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          throw new Error(`Recommendations request failed: ${response.status}`);
+        }
+        const data = (await response.json()) as HomeFeedResponse;
+        setFeed((current) => current ? {
+          ...current,
+          recommendations: data.recommendations,
+          recommendationsPage: data.recommendationsPage,
+        } : data);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setFeedError('Не удалось загрузить рекомендации. Обновите страницу.');
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsRecommendationsLoadingMore(false);
+        }
+      }
+    };
+
+    void loadFilteredRecommendations();
+    return () => controller.abort();
+  }, [hasFeed, recommendationCategoryKey]);
 
   useEffect(() => {
     const track = popularRef.current;
@@ -279,6 +335,59 @@ export default function Home() {
       window.removeEventListener('resize', handleResize);
     };
   }, [popularItems.length, isFeedLoading]);
+
+  useEffect(() => {
+    const target = recommendationLoadMoreRef.current;
+    if (!target || isSearchMode || !hasMoreRecommendations || isRecommendationsLoadingMore) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      const nextOffset = feed?.recommendationsPage?.nextOffset;
+      if (nextOffset === null || nextOffset === undefined) return;
+
+      const loadMoreRecommendations = async () => {
+        setIsRecommendationsLoadingMore(true);
+        try {
+          const params = new URLSearchParams({
+            recommendationsOffset: String(nextOffset),
+            recommendationsLimit: String(RECOMMENDATION_BATCH_SIZE),
+          });
+          if (recommendationCategoryKey) {
+            params.set('categories', recommendationCategoryKey);
+          }
+
+          const response = await fetch(`/api/home-feed?${params.toString()}`, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`Recommendations request failed: ${response.status}`);
+          }
+          const data = (await response.json()) as HomeFeedResponse;
+          setFeed((current) => current ? {
+            ...current,
+            recommendations: [...current.recommendations, ...data.recommendations],
+            recommendationsPage: data.recommendationsPage,
+          } : data);
+        } catch {
+          setFeedError('Не удалось загрузить следующую страницу рекомендаций.');
+        } finally {
+          setIsRecommendationsLoadingMore(false);
+        }
+      };
+
+      void loadMoreRecommendations();
+    }, {
+      rootMargin: '120px 0px',
+      threshold: 0,
+    });
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    feed?.recommendationsPage?.nextOffset,
+    hasMoreRecommendations,
+    isRecommendationsLoadingMore,
+    isSearchMode,
+    recommendationCategoryKey,
+  ]);
 
   const toggleCategory = (category: string) => {
     setActiveCategories((current) =>
@@ -466,6 +575,22 @@ export default function Home() {
     );
   };
 
+  const renderAuthorAvatar = (item: WorkSummary) => {
+    const initial = (item.author || item.authorUsername || item.title).trim().slice(0, 1).toUpperCase();
+
+    if (item.authorAvatarUrl) {
+      return (
+        <span
+          className="work-card-author-avatar"
+          style={{ backgroundImage: `url(${item.authorAvatarUrl})` }}
+          aria-hidden="true"
+        />
+      );
+    }
+
+    return <span className="work-card-author-avatar work-card-author-avatar-fallback" aria-hidden="true">{initial}</span>;
+  };
+
   const filteredFolders = libraryFolders.filter((folder) =>
     folder.name.toLowerCase().includes(collectionSearch.trim().toLowerCase())
   );
@@ -556,11 +681,22 @@ export default function Home() {
                         alt={item.title}
                         width={item.thumbnailWidth ?? item.imageWidth ?? 1200}
                         height={item.thumbnailHeight ?? item.imageHeight ?? 1500}
+                        sizes="(max-width: 640px) 70vw, (max-width: 1024px) 32vw, 18vw"
+                        loading="lazy"
                         unoptimized
                       />
                     </Link>
                     <div className="popular-overlay">
-                      {renderSaveButton(item)}
+                      <div className="work-card-overlay-top">
+                        {renderSaveButton(item)}
+                      </div>
+                      <Link href={`/work/${item.id}`} className="work-card-author-strip" aria-label={`Открыть работу ${item.title}`}>
+                        {renderAuthorAvatar(item)}
+                        <span>
+                          <strong>{item.title}</strong>
+                          <small>{item.author}</small>
+                        </span>
+                      </Link>
                     </div>
                   </div>
                   <Link href={`/work/${item.id}`} className="popular-meta">
@@ -649,11 +785,22 @@ export default function Home() {
                       alt={item.title}
                       width={item.thumbnailWidth ?? item.imageWidth ?? 1200}
                       height={item.thumbnailHeight ?? item.imageHeight ?? 1500}
+                      sizes="(max-width: 640px) 92vw, (max-width: 1024px) 44vw, 29vw"
+                      loading="lazy"
                       unoptimized
                     />
                   </Link>
                   <div className="recommend-card-overlay">
-                    {renderSaveButton(item)}
+                    <div className="work-card-overlay-top">
+                      {renderSaveButton(item)}
+                    </div>
+                    <Link href={`/work/${item.id}`} className="work-card-author-strip" aria-label={`Открыть работу ${item.title}`}>
+                      {renderAuthorAvatar(item)}
+                      <span>
+                        <strong>{item.title}</strong>
+                        <small>{item.author}</small>
+                      </span>
+                    </Link>
                   </div>
                 </div>
                 <Link href={`/work/${item.id}`} className="recommend-card-info">
@@ -663,6 +810,11 @@ export default function Home() {
               </article>
             ))}
           </div>
+          {hasMoreRecommendations && (
+            <div ref={recommendationLoadMoreRef} className="recommend-load-sentinel" aria-hidden="true">
+              <span className="modern-spinner" />
+            </div>
+          )}
         </div>
       </section>
 

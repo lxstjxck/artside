@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getImageDimensions } from '@/lib/image-metadata';
+import { moderateWork } from '@/lib/moderation-store';
 import { getSessionUser } from '@/lib/session-user';
-import { deleteWorkImage, uploadWorkImage } from '@/lib/work-image-storage';
+import { deleteWorkImage } from '@/lib/work-image-storage';
+import { storeAvifWorkThumbnail, storeOriginalWorkImage } from '@/lib/work-image-processing';
 import { deleteWork, getWorkById, getWorkOwnerInfo, updateWork } from '@/lib/work-store';
 
 type RouteParams = {
@@ -13,12 +14,6 @@ type RouteParams = {
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
 const MAX_WORK_IMAGES = 8;
 const MAX_GALLERY_IMAGES = MAX_WORK_IMAGES - 1;
-const ALLOWED_TYPES = new Map([
-  ['image/jpeg', 'jpg'],
-  ['image/png', 'png'],
-  ['image/webp', 'webp'],
-]);
-
 const trimString = (value: FormDataEntryValue | null) => (typeof value === 'string' ? value.trim() : '');
 const parseTags = (value: string) => value.split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 8);
 const parseStatus = (value: FormDataEntryValue | null) => {
@@ -30,35 +25,6 @@ const parseStatus = (value: FormDataEntryValue | null) => {
 const parseWorkId = (value: string) => {
   const id = Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
-};
-
-const storeImageFile = async (image: File) => {
-  const extension = ALLOWED_TYPES.get(image.type);
-  if (!extension) {
-    throw new Error('UNSUPPORTED_IMAGE_TYPE');
-  }
-  if (image.size > MAX_IMAGE_SIZE || image.size <= 0) {
-    throw new Error('INVALID_IMAGE_SIZE');
-  }
-
-  const buffer = Buffer.from(await image.arrayBuffer());
-  const dimensions = getImageDimensions(buffer);
-  if (!dimensions) {
-    throw new Error('INVALID_IMAGE_DIMENSIONS');
-  }
-
-  const storedImage = await uploadWorkImage({
-    buffer,
-    extension,
-    contentType: image.type,
-  });
-
-  return {
-    url: storedImage.url,
-    key: storedImage.key,
-    width: dimensions.width,
-    height: dimensions.height,
-  };
 };
 
 export async function GET(_: Request, { params }: RouteParams) {
@@ -137,8 +103,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   let nextImages: Parameters<typeof updateWork>[1]['images'];
 
   try {
+    let newPrimaryBuffer: Buffer | null = null;
+
     if (image instanceof File && image.size > 0) {
-      const storedImage = await storeImageFile(image);
+      const storedImage = await storeOriginalWorkImage(image, MAX_IMAGE_SIZE);
+      newPrimaryBuffer = storedImage.buffer;
       nextImage = {
         imageUrl: storedImage.url,
         imageKey: storedImage.key,
@@ -148,7 +117,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
 
     if (thumbnail instanceof File && thumbnail.size > 0) {
-      const storedThumbnail = await storeImageFile(thumbnail);
+      const storedThumbnail = await storeAvifWorkThumbnail(thumbnail, MAX_IMAGE_SIZE);
       nextThumbnail = {
         thumbnailUrl: storedThumbnail.url,
         thumbnailKey: storedThumbnail.key,
@@ -157,17 +126,18 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       };
     }
 
-    if (nextImage && !nextThumbnail && existing.thumbnailKey === existing.imageKey) {
+    if (nextImage && !nextThumbnail && newPrimaryBuffer) {
+      const storedThumbnail = await storeAvifWorkThumbnail(newPrimaryBuffer);
       nextThumbnail = {
-        thumbnailUrl: nextImage.imageUrl,
-        thumbnailKey: nextImage.imageKey,
-        thumbnailWidth: nextImage.imageWidth,
-        thumbnailHeight: nextImage.imageHeight,
+        thumbnailUrl: storedThumbnail.url,
+        thumbnailKey: storedThumbnail.key,
+        thumbnailWidth: storedThumbnail.width,
+        thumbnailHeight: storedThumbnail.height,
       };
     }
 
     if (nextImage || galleryFiles.length > 0 || clearGallery) {
-      const galleryImages = await Promise.all(galleryFiles.map(storeImageFile));
+      const galleryImages = await Promise.all(galleryFiles.map((file) => storeOriginalWorkImage(file, MAX_IMAGE_SIZE)));
       const preservedGalleryImages = nextImage && galleryFiles.length === 0 && !clearGallery
         ? existing.images
             .filter((item) => item.sortOrder > 0)
@@ -219,6 +189,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     images: nextImages,
   });
 
+  let responseWork = work;
+  if (status && status !== 'draft') {
+    await moderateWork(id);
+    responseWork = await getWorkById(id, user.id) ?? work;
+  }
+
   await Promise.all([
     nextImage ? deleteWorkImage(existing.imageKey) : Promise.resolve(),
     nextThumbnail ? deleteWorkImage(existing.thumbnailKey) : Promise.resolve(),
@@ -229,7 +205,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       : []),
   ]);
 
-  return NextResponse.json({ work });
+  return NextResponse.json({ work: responseWork });
 }
 
 export async function DELETE(_: Request, { params }: RouteParams) {

@@ -6,7 +6,8 @@ const searchWorkInclude = {
   author: {
     select: {
       username: true,
-      profile: { select: { nickname: true } },
+      _count: { select: { followers: true } },
+      profile: { select: { nickname: true, avatarUrl: true } },
     },
   },
   _count: {
@@ -21,7 +22,8 @@ const searchWorkInclude = {
 type SearchWork = Awaited<ReturnType<typeof prisma.work.findMany>>[number] & {
   author: {
     username: string;
-    profile: { nickname: string } | null;
+    _count: { followers: number };
+    profile: { nickname: string; avatarUrl: string } | null;
   };
   _count: {
     views: number;
@@ -118,7 +120,8 @@ export async function GET(request: Request) {
       author: {
         select: {
           username: true,
-          profile: { select: { nickname: true } },
+          _count: { select: { followers: true } },
+          profile: { select: { nickname: true, avatarUrl: true } },
         },
       },
     },
@@ -160,6 +163,10 @@ export async function GET(request: Request) {
       featured: work.featured,
       author: work.author.profile?.nickname || work.author.username,
       authorUsername: work.author.username,
+      authorAvatarUrl: work.author.profile?.avatarUrl ?? null,
+      authorFollowers: work.author._count.followers,
+      isFollowingAuthor: false,
+      isOwnAuthor: false,
       views: work._count.views,
       likes: work._count.likes,
       saves: work._count.savedBy,

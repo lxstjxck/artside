@@ -47,6 +47,10 @@ export const uploadWorkImage = async ({ buffer, contentType, extension }: Upload
   const key = getUploadKey(extension);
   const s3Config = getS3Config();
 
+  if (!s3Config && process.env.NODE_ENV === 'production') {
+    throw new Error('S3/R2 image storage is not configured for production.');
+  }
+
   if (s3Config) {
     const client = new S3Client({
       region: s3Config.region,

@@ -268,7 +268,11 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     }
 
     setWorks((current) => current.map((item) => (item.id === work.id ? data.work! : item)));
-    setProfileMessage('Работа отправлена на модерацию.');
+    setProfileMessage(data.work.status === 'published'
+      ? 'Работа прошла проверку и опубликована.'
+      : data.work.status === 'rejected'
+        ? 'Работа отклонена проверкой. Исправьте замечания и повторите проверку.'
+        : 'Работа отправлена на модерацию.');
   };
 
   const moderateOwnWork = async (work: WorkSummary) => {

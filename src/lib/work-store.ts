@@ -7,6 +7,10 @@ export type WorkSummary = {
   category: string;
   author: string;
   authorUsername: string;
+  authorAvatarUrl?: string | null;
+  authorFollowers: number;
+  isFollowingAuthor?: boolean;
+  isOwnAuthor?: boolean;
   imageUrl: string;
   imageKey?: string | null;
   imageWidth: number;
@@ -88,6 +92,18 @@ export type HomeFeedResponse = {
   categories: string[];
   popular: WorkSummary[];
   recommendations: WorkSummary[];
+  recommendationsPage: {
+    offset: number;
+    limit: number;
+    nextOffset: number | null;
+    hasMore: boolean;
+  };
+};
+
+export type HomeFeedOptions = {
+  recommendationsOffset?: number;
+  recommendationsLimit?: number;
+  recommendationCategories?: string[];
 };
 
 type WorkWithAuthor = {
@@ -118,8 +134,13 @@ type WorkWithAuthor = {
   savedBy?: Array<{ userId: string }>;
   author: {
     username: string;
+    followers?: Array<{ followerId: string }>;
+    _count?: {
+      followers: number;
+    };
     profile: {
       nickname: string;
+      avatarUrl: string;
     } | null;
   };
   images?: WorkImageItem[];
@@ -361,6 +382,10 @@ const mapWorkSummary = (work: WorkWithAuthor, viewerId?: string | null): WorkSum
   category: work.category,
   author: work.author.profile?.nickname || work.author.username,
   authorUsername: work.author.username,
+  authorAvatarUrl: work.author.profile?.avatarUrl ?? null,
+  authorFollowers: work.author._count?.followers ?? 0,
+  isFollowingAuthor: viewerId ? Boolean(work.author.followers?.some((item) => item.followerId === viewerId)) : false,
+  isOwnAuthor: viewerId ? work.authorId === viewerId : false,
   imageUrl: work.imageUrl,
   imageKey: work.imageKey,
   imageWidth: work.imageWidth,
@@ -417,9 +442,19 @@ const includeForViewer = (viewerId?: string | null) => ({
   author: {
     select: {
       username: true,
+      _count: {
+        select: {
+          followers: true,
+        },
+      },
+      followers: viewerId ? {
+        where: { followerId: viewerId },
+        select: { followerId: true },
+      } : false,
       profile: {
         select: {
           nickname: true,
+          avatarUrl: true,
         },
       },
     },
@@ -475,6 +510,12 @@ const getPopularScore = (work: WorkWithAuthor) => {
     + work._count.likes * 2
     + work._count.savedBy * 3
     + getRecencyScore(work.createdAt) * 12;
+};
+
+const normalizePagination = (options?: HomeFeedOptions) => {
+  const offset = Math.max(0, Math.floor(options?.recommendationsOffset ?? 0));
+  const limit = Math.min(30, Math.max(1, Math.floor(options?.recommendationsLimit ?? 18)));
+  return { offset, limit };
 };
 
 const seedViewerIds = Array.from({ length: 12 }, (_, index) => `seed-demo-viewer-${index + 1}`);
@@ -605,8 +646,18 @@ export const seedDemoWorks = async () => {
   }
 };
 
-export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedResponse> => {
+export const listHomeFeed = async (
+  viewerId?: string | null,
+  options?: HomeFeedOptions
+): Promise<HomeFeedResponse> => {
   await ensureDatabaseSchema();
+
+  const { offset, limit } = normalizePagination(options);
+  const recommendationCategories = options?.recommendationCategories?.filter(Boolean) ?? [];
+  const recommendationWhere = {
+    status: 'published',
+    ...(recommendationCategories.length > 0 ? { category: { in: recommendationCategories } } : {}),
+  } as const;
 
   const works = await prisma.work.findMany({
     where: { status: 'published' },
@@ -620,7 +671,9 @@ export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedRe
     .sort((a, b) => getPopularScore(b) - getPopularScore(a))
     .map((work) => mapWorkSummary(work, viewerId));
 
-  let recommendations = summaries;
+  let recommendations: WorkSummary[];
+  let hasMoreRecommendations = false;
+
   if (viewerId) {
     const interactions = await prisma.work.findMany({
       where: {
@@ -650,7 +703,8 @@ export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedRe
       }
     }
 
-    recommendations = [...works]
+    const personalized = [...works]
+      .filter((work) => recommendationCategories.length === 0 || recommendationCategories.includes(work.category))
       .sort((a, b) => {
         const score = (work: WorkWithAuthor) => {
           const tags = parseTags(work.tags);
@@ -662,12 +716,32 @@ export const listHomeFeed = async (viewerId?: string | null): Promise<HomeFeedRe
         return score(b) - score(a);
       })
       .map((work) => mapWorkSummary(work, viewerId));
+
+    recommendations = personalized.slice(offset, offset + limit);
+    hasMoreRecommendations = offset + limit < personalized.length;
+  } else {
+    const recommendationWorks = await prisma.work.findMany({
+      where: recommendationWhere,
+      orderBy: [{ createdAt: 'desc' }],
+      skip: offset,
+      take: limit + 1,
+      include: includeForViewer(viewerId),
+    });
+
+    hasMoreRecommendations = recommendationWorks.length > limit;
+    recommendations = recommendationWorks.slice(0, limit).map((work) => mapWorkSummary(work, viewerId));
   }
 
   return {
     categories,
     popular: popular.slice(0, 12),
-    recommendations: recommendations.slice(0, 60),
+    recommendations,
+    recommendationsPage: {
+      offset,
+      limit,
+      nextOffset: hasMoreRecommendations ? offset + recommendations.length : null,
+      hasMore: hasMoreRecommendations,
+    },
   };
 };
 

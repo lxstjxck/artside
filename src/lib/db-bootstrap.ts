@@ -175,6 +175,17 @@ export const ensureDatabaseSchema = async () => {
         );
       `);
 
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "UserFollow" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "followerId" TEXT NOT NULL,
+          "followingId" TEXT NOT NULL,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("followerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY ("followingId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        );
+      `);
+
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "User_username_key" ON "User"("username");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "Profile_userId_key" ON "Profile"("userId");');
@@ -185,6 +196,8 @@ export const ensureDatabaseSchema = async () => {
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkView_workId_viewedAt_idx" ON "WorkView"("workId", "viewedAt");');
       await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_expiresAt_idx" ON "PasswordResetToken"("userId", "expiresAt");');
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "UserFollow_followerId_followingId_key" ON "UserFollow"("followerId", "followingId");');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "UserFollow_followingId_idx" ON "UserFollow"("followingId");');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "Work_status_createdAt_idx" ON "Work"("status", "createdAt");');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "WorkImage_workId_sortOrder_idx" ON "WorkImage"("workId", "sortOrder");');
 

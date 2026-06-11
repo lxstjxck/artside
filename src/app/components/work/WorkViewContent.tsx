@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import WorkCloseButton from '@/app/components/work/WorkCloseButton';
 import type { WorkComment, WorkDetail } from '@/lib/work-catalog';
 import type { LibraryFolderItem, SavedWorkItem } from '@/lib/saved-work-types';
@@ -17,6 +18,9 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
   const [saves, setSaves] = useState(work.saves);
   const [isLiked, setIsLiked] = useState(work.likedByMe);
   const [isSaved, setIsSaved] = useState(work.savedByMe);
+  const [isFollowingAuthor, setIsFollowingAuthor] = useState(Boolean(work.isFollowingAuthor));
+  const [authorFollowers, setAuthorFollowers] = useState(work.authorFollowers);
+  const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [comments, setComments] = useState<WorkComment[]>(work.comments);
   const [commentText, setCommentText] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -31,6 +35,8 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
   const filteredFolders = useMemo(() => (
     libraryFolders.filter((folder) => folder.name.toLowerCase().includes(collectionSearch.trim().toLowerCase()))
   ), [collectionSearch, libraryFolders]);
+
+  const authorInitial = (work.author || work.authorUsername || work.title).trim().slice(0, 1).toUpperCase();
 
   useEffect(() => {
     const markViewed = async () => {
@@ -55,6 +61,37 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
     }
     setIsLiked(Boolean(data.liked));
     if (typeof data.likes === 'number') setLikes(data.likes);
+  };
+
+  const toggleAuthorFollow = async () => {
+    if (isFollowLoading || work.isOwnAuthor) return;
+
+    setIsFollowLoading(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/profile/${work.authorUsername}/follow`, {
+        method: isFollowingAuthor ? 'DELETE' : 'POST',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        following?: boolean;
+        followers?: number;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'Не удалось обновить подписку.');
+      }
+
+      setIsFollowingAuthor(Boolean(data.following));
+      if (typeof data.followers === 'number') {
+        setAuthorFollowers(data.followers);
+      }
+    } catch (error) {
+      setMessage((error as Error).message || 'Не удалось обновить подписку.');
+    } finally {
+      setIsFollowLoading(false);
+    }
   };
 
   const loadLibraryFolders = async () => {
@@ -201,7 +238,37 @@ export default function WorkViewContent({ work, closeHref = '/' }: WorkViewConte
         <div className="work-view-top">
           <p className="work-view-kind">{work.category}</p>
           <h2 className="work-view-title">{work.title}</h2>
-          <p className="work-view-author">Автор: {work.author}</p>
+          <Link href={`/profile/${work.authorUsername}`} className="work-view-author-card">
+            {work.authorAvatarUrl ? (
+              <span
+                className="work-view-author-avatar"
+                style={{ backgroundImage: `url(${work.authorAvatarUrl})` }}
+                aria-hidden="true"
+              />
+            ) : (
+              <span className="work-view-author-avatar work-view-author-avatar-fallback" aria-hidden="true">
+                {authorInitial}
+              </span>
+            )}
+            <span className="work-view-author-copy">
+              <small>Автор</small>
+              <strong>{work.author}</strong>
+              <em>@{work.authorUsername}</em>
+            </span>
+          </Link>
+          <div className="work-view-follow-row">
+            <span>{authorFollowers.toLocaleString('ru-RU')} подписчиков</span>
+            {!work.isOwnAuthor && (
+              <button
+                type="button"
+                className={`work-view-follow-btn ${isFollowingAuthor ? 'work-view-follow-btn-active' : ''}`}
+                onClick={toggleAuthorFollow}
+                disabled={isFollowLoading}
+              >
+                {isFollowLoading ? 'Обновление...' : isFollowingAuthor ? 'Вы подписаны' : 'Подписаться'}
+              </button>
+            )}
+          </div>
           <div className="work-view-meta">
             <span>{work.imageWidth}x{work.imageHeight}</span>
             <span>{work.publishedAt}</span>

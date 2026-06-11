@@ -6,12 +6,17 @@
     "dev": "next dev",
     "postinstall": "prisma generate",
     "build": "next build",
+    "vercel-build": "node scripts/prepare-prisma-production.mjs && prisma generate --schema prisma/schema.production.prisma && prisma db push --schema prisma/schema.production.prisma && next build",
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
+    "prisma:generate:production": "node scripts/prepare-prisma-production.mjs && prisma generate --schema prisma/schema.production.prisma",
+    "db:deploy": "node scripts/prepare-prisma-production.mjs && prisma db push --schema prisma/schema.production.prisma",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "node scripts/seed-demo.mjs",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "benchmark:home": "node scripts/benchmark-home-load.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",
@@ -21,7 +26,8 @@
     "next": "^16.2.4",
     "nodemailer": "^8.0.7",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -35,6 +41,7 @@
     "eslint-config-next": "^16.2.4",
     "postcss": "^8.5.6",
     "prisma": "^6.19.3",
+    "puppeteer-core": "^25.1.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5"
   }

@@ -28,6 +28,8 @@ model User {
   views        WorkView[]
   notifications Notification[]
   passwordResetTokens PasswordResetToken[]
+  following    UserFollow[]    @relation("UserFollowing")
+  followers    UserFollow[]    @relation("UserFollowers")
 }
 
 model Profile {
@@ -179,4 +181,16 @@ model PasswordResetToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model UserFollow {
+  id          Int      @id @default(autoincrement())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
 }
